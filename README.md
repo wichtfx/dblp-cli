@@ -1,4 +1,4 @@
-# dblp — offline search over the dblp.org bibliography
+# dblp-cli offline search over the dblp.org bibliography
 
 A single Go binary that downloads the full [dblp.org](https://dblp.org) computer-science
 bibliography dump, indexes it locally with SQLite full-text search, and lets you
@@ -47,7 +47,7 @@ dblp                     # interactive search (default with no arguments)
 | `dblp search <query>`   | Search and print numbered results. `-n N` sets the result count, `-i` opens interactive mode.                                                |
 | `dblp bibtex <key>...`  | Print BibTeX for one or more dblp keys. `-c` copies to the clipboard, `-o file.bib` writes to a file.                                        |
 | `dblp status`           | Show the dump date, freshness, record count, and check dblp.org for a newer dump.                                                            |
-| `dblp mcp`              | Start a read-only MCP stdio server for LLM clients.                                                                                           |
+| `dblp mcp`              | Start a read-only MCP stdio server for LLM clients.                                                                                          |
 | `dblp` (no args)        | Interactive search REPL.                                                                                                                     |
 
 ### Interactive mode
@@ -85,7 +85,7 @@ name are not mixed together. Use `n` and `p` to browse the complete publication
 list. If the index was built by a version of `dblp-cli` without author-homepage
 support, run `dblp index` once to add the exact author mapping.
 
-**Drill-down / faceting.** Type a result's number to *select* it; the tool then lists
+**Drill-down / faceting.** Type a result's number to _select_ it; the tool then lists
 its authors (numbered), venue and year. From there `au <k>` pivots the search to that
 author, or simply type the author's displayed number. `ve` pivots to the venue. Both
 commands can be narrowed by a trailing year (`y` means "this paper's year").
@@ -139,8 +139,15 @@ Everything lives under `$XDG_DATA_HOME/dblp-cli` (default `~/.local/share/dblp-c
 
 ## LLM access with MCP
 
-After building the index, configure an MCP-compatible LLM client to launch the
-binary with the `mcp` command. For example:
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io/) lets an LLM
+discover and call tools supplied by a local process. In this project it gives a
+model access to the same offline DBLP index as the CLI. This is useful for
+checking whether a citation actually exists, resolving the correct author or
+venue, and generating BibTeX from stored metadata instead of model memory.
+
+The MCP server requires a built index, so run `dblp update` (or `dblp index` for
+an existing dump) first. Then configure an MCP-compatible client to launch the
+binary with the `mcp` command. A typical configuration looks like this:
 
 ```json
 {
@@ -153,13 +160,50 @@ binary with the `mcp` command. For example:
 }
 ```
 
-The server exposes five read-only tools: `search_publications`,
-`get_publication`, `get_bibtex`, `browse_author_publications`, and
-`browse_venue_publications`. Search and browse results include `hasMore`, `limit`,
-and `offset` pagination metadata. An LLM can search first, inspect an exact
-record, browse its author or venue, and only then request BibTeX. The server
-communicates using newline-delimited JSON-RPC on stdin/stdout; it does not expose
-arbitrary SQL or write operations.
+Use an absolute path for `command`; MCP clients do not necessarily inherit the
+same `PATH` as an interactive shell. The exact location and name of the MCP
+configuration file depends on the client.
+
+### MCP tools
+
+| Tool | Purpose | Important arguments |
+| --- | --- | --- |
+| `search_publications` | Ranked full-text or field-scoped search returning compact publication summaries and DBLP keys. | `query`, optional `limit` and `offset` |
+| `get_publication` | Retrieve the complete stored DBLP record for one exact key. | `key` |
+| `get_bibtex` | Generate BibTeX for up to 100 exact DBLP keys in one call. | `keys` |
+| `browse_author_publications` | Browse work by an exact DBLP author identity, without mixing homonyms. | `author`, optional `year`, `limit`, and `offset` |
+| `browse_venue_publications` | Browse an exact journal, conference, or book-title venue. | `venue`, optional `year`, `limit`, and `offset` |
+
+Search accepts the same field-scoped FTS5 syntax as the CLI, for example
+`title:(bert OR gpt) AND authors:devlin`. Search and browse responses contain
+compact publication records plus `hasMore`, `limit`, and `offset`. When
+`hasMore` is true, request the next page by increasing `offset` by `limit`.
+
+For author browsing, use the raw author value returned by `get_publication`.
+DBLP suffixes such as `Wei Wang 0001` distinguish people who share a displayed
+name; the CLI hides those suffixes for presentation, but the MCP tool preserves
+them for accurate browsing.
+
+### Typical grounding flow
+
+1. Call `search_publications` with title words, an author, or a scoped query.
+2. Choose a candidate by its title, year, venue, and DBLP key.
+3. Call `get_publication` to verify the complete record.
+4. Optionally browse the exact author or venue to gather related work.
+5. Call `get_bibtex` only for the verified key or keys.
+
+Example requests to an LLM client might be: “Find the original BERT paper and
+give me its DBLP BibTeX” or “List the 2024 publications in this paper's venue.”
+The client decides when to call tools; `dblp-cli` supplies the bibliographic
+facts.
+
+The server implements MCP 2025-06-18 over newline-delimited JSON-RPC on standard
+input and output. All tools are marked read-only, non-destructive, idempotent,
+and closed-world. They can read only the local DBLP index: arbitrary SQL,
+database writes, downloads, clipboard access, and file export are not exposed.
+Once the index exists, MCP queries require no network connection. Standard
+output is reserved for protocol messages, so server diagnostics must remain on
+standard error.
 
 ## Design notes
 
@@ -175,5 +219,7 @@ arbitrary SQL or write operations.
 - **Batched author indexing.** Author-to-publication mappings are inserted in
   batches while parsing, avoiding several SQLite calls per publication without
   retaining the dump in memory.
+- **Pipelined preparation.** A bounded worker pool performs JSON encoding and
+  metadata cleanup concurrently with the streaming parser and SQLite writer.
 - **dblp homonym suffixes** (e.g. _Wei Wang 0001_) are stripped for clean display
   and BibTeX output.
