@@ -1,0 +1,31 @@
+# Build outputs
+/dblp
+/dblp-cli
+*.test
+*.out
+coverage.*
+cpu.prof
+mem.prof
+
+# Local DBLP data and interrupted builds
+*.xml.gz
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.part
+*.building
+meta.json
+
+# Local configuration and secrets
+.env
+.env.*
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
