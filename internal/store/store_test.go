@@ -1,0 +1,79 @@
+package store
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/wichtfx/dblp-cli/internal/dump"
+)
+
+func TestSearchAuthorUsesDBLPIdentity(t *testing.T) {
+	st, err := Open(t.TempDir() + "/dblp.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	b, err := st.NewBuilder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := []dump.Record{
+		{Type: "www", Key: "homepages/w/WeiWang1", Title: "Home Page", Authors: []string{"Wei Wang 0001"}},
+		{Type: "article", Key: "journals/a/Wang24", Title: "First Identity", Authors: []string{"Wei Wang 0001"}, Year: "2024"},
+		{Type: "article", Key: "journals/b/Wang23", Title: "Second Identity", Authors: []string{"Wei Wang 0002"}, Year: "2023"},
+	}
+	for _, record := range records {
+		if err := b.Add(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := st.SearchAuthor("Wei Wang 0001", "", 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Key != "journals/a/Wang24" {
+		t.Fatalf("SearchAuthor returned %#v", got)
+	}
+	got, err = st.SearchAuthor("Wei Wang 0001", "", 20, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("past final page returned %#v", got)
+	}
+}
+
+func TestBuilderFlushesAuthorBatches(t *testing.T) {
+	st, err := Open(t.TempDir() + "/dblp.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	b, err := st.NewBuilder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < authorBatchSize+1; i++ {
+		author := fmt.Sprintf("Author %04d", i)
+		if err := b.Add(dump.Record{
+			Type: "article", Key: fmt.Sprintf("journals/test/%04d", i),
+			Title: "Batch Test", Authors: []string{author},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.SearchAuthor("Author 1000", "", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Key != "journals/test/1000" {
+		t.Fatalf("SearchAuthor returned %#v", got)
+	}
+}

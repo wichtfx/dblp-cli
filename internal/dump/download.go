@@ -1,0 +1,156 @@
+package dump
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+)
+
+const SourceURL = "https://dblp.org/xml/dblp.xml.gz"
+
+// Sources contains the canonical dump URL followed by the official mirrors.
+var Sources = []string{
+	SourceURL,
+	"https://dblp.dagstuhl.de/xml/dblp.xml.gz",
+	"https://dblp.uni-trier.de/xml/dblp.xml.gz",
+}
+
+var httpClient = &http.Client{
+	Transport: func() *http.Transport {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.ResponseHeaderTimeout = 30 * time.Second
+		return transport
+	}(),
+	// The dump is about 1 GiB, so the overall limit must accommodate slow
+	// connections. ResponseHeaderTimeout above handles dead mirrors quickly.
+	Timeout: 6 * time.Hour,
+}
+
+type progressWriter struct {
+	total      int64
+	written    int64
+	lastReport time.Time
+}
+
+func (p *progressWriter) Write(b []byte) (int, error) {
+	p.written += int64(len(b))
+	if time.Since(p.lastReport) >= 250*time.Millisecond {
+		p.report(false)
+		p.lastReport = time.Now()
+	}
+	return len(b), nil
+}
+
+func (p *progressWriter) report(done bool) {
+	const width = 30
+	if p.total <= 0 {
+		fmt.Fprintf(os.Stderr, "\r  [%-30s] %6.1f MiB", strings.Repeat("=", int(p.written/(32<<20))%width), mib(p.written))
+		return
+	}
+	ratio := min(float64(p.written)/float64(p.total), 1)
+	filled := int(ratio * width)
+	bar := strings.Repeat("=", filled) + strings.Repeat(" ", width-filled)
+	if !done && filled > 0 && filled < width {
+		bar = bar[:filled-1] + ">" + bar[filled:]
+	}
+	fmt.Fprintf(os.Stderr, "\r  [%s] %6.1f / %.1f MiB  %3.0f%%", bar, mib(p.written), mib(p.total), ratio*100)
+}
+
+func mib(n int64) float64 { return float64(n) / (1024 * 1024) }
+
+// RemoteDate checks the canonical host and then the official mirrors.
+func RemoteDate() (time.Time, error) {
+	var errs []error
+	for _, source := range Sources {
+		req, err := http.NewRequest(http.MethodHead, source, nil)
+		if err != nil {
+			return time.Time{}, err
+		}
+		req.Header.Set("User-Agent", "dblp-cli/1")
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", source, err))
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			errs = append(errs, fmt.Errorf("%s: %s", source, resp.Status))
+			continue
+		}
+		date, err := time.Parse(http.TimeFormat, resp.Header.Get("Last-Modified"))
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: invalid Last-Modified header", source))
+			continue
+		}
+		return date, nil
+	}
+	return time.Time{}, errors.Join(errs...)
+}
+
+// Download tries the canonical host and each official mirror in turn. The
+// returned URL identifies the source that succeeded.
+func Download(dst string) (time.Time, string, error) {
+	var errs []error
+	for i, source := range Sources {
+		if i > 0 {
+			fmt.Fprintf(os.Stderr, "Trying mirror %s ...\n", source)
+		}
+		date, err := downloadFrom(source, dst)
+		if err == nil {
+			return date, source, nil
+		}
+		fmt.Fprintf(os.Stderr, "  %s failed: %v\n", source, err)
+		errs = append(errs, fmt.Errorf("%s: %w", source, err))
+	}
+	return time.Time{}, "", fmt.Errorf("all dblp download servers failed: %w", errors.Join(errs...))
+}
+
+func downloadFrom(source, dst string) (time.Time, error) {
+	req, err := http.NewRequest(http.MethodGet, source, nil)
+	if err != nil {
+		return time.Time{}, err
+	}
+	req.Header.Set("User-Agent", "dblp-cli/1")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return time.Time{}, fmt.Errorf("server returned %s", resp.Status)
+	}
+
+	tmp := dst + ".part"
+	out, err := os.Create(tmp)
+	if err != nil {
+		return time.Time{}, err
+	}
+	keep := false
+	defer func() {
+		out.Close()
+		if !keep {
+			os.Remove(tmp)
+		}
+	}()
+
+	progress := &progressWriter{total: resp.ContentLength}
+	_, copyErr := io.Copy(out, io.TeeReader(resp.Body, progress))
+	progress.report(copyErr == nil)
+	fmt.Fprintln(os.Stderr)
+	if copyErr != nil {
+		return time.Time{}, copyErr
+	}
+	if err := out.Close(); err != nil {
+		return time.Time{}, err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		return time.Time{}, err
+	}
+	keep = true
+	date, _ := time.Parse(http.TimeFormat, resp.Header.Get("Last-Modified"))
+	return date, nil
+}
