@@ -83,7 +83,7 @@ func Index(path string) error {
 		}
 	}
 	if !fileExists(path) {
-		return fmt.Errorf("dump not found at %s — run `dblp update` first", path)
+		return fmt.Errorf("dump not found at %s — run `dblp-cli update` first", path)
 	}
 
 	dbPath, err := paths.DB()
@@ -243,7 +243,7 @@ func Status() error {
 		return err
 	}
 	if !ok {
-		fmt.Println("No data yet. Run `dblp update` to download and index the dblp dump.")
+		fmt.Println("No data yet. Run `dblp-cli update` to download and index the dblp dump.")
 		return nil
 	}
 	fmt.Printf("Source:      %s\n", orNone(m.SourceURL))
@@ -260,7 +260,7 @@ func Status() error {
 	if remote, err := dump.RemoteDate(); err == nil && !remote.IsZero() {
 		switch {
 		case remote.After(m.DumpDate):
-			fmt.Printf("Update:      newer dump available (%s) — run `dblp update`\n", remote.Format("2006-01-02"))
+			fmt.Printf("Update:      newer dump available (%s) — run `dblp-cli update`\n", remote.Format("2006-01-02"))
 		default:
 			fmt.Println("Update:      you have the latest dump")
 		}
@@ -277,7 +277,7 @@ func openIndex() (*store.Store, error) {
 		return nil, err
 	}
 	if !fileExists(dbPath) {
-		return nil, fmt.Errorf("no index yet — run `dblp update` first")
+		return nil, fmt.Errorf("no index yet — run `dblp-cli update` first")
 	}
 	return store.Open(dbPath)
 }

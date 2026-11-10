@@ -27,7 +27,7 @@ func Search(query string, limit int) error {
 		return nil
 	}
 	printResults(res, 0)
-	fmt.Fprintf(os.Stderr, "\nExport: dblp bibtex %s\n", res[0].Key)
+	fmt.Fprintf(os.Stderr, "\nExport: dblp-cli bibtex %s\n", res[0].Key)
 	return nil
 }
 

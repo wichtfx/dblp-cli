@@ -71,16 +71,16 @@ func (m Meta) Stale() bool { return m.Age() > StaleAfter }
 func (m Meta) Banner() string {
 	if m.DumpDate.IsZero() {
 		if m.Records > 0 {
-			return fmt.Sprintf("Indexed %s records from a local dump (date unknown) · `dblp update` fetches a dated dump",
+			return fmt.Sprintf("Indexed %s records from a local dump (date unknown) · `dblp-cli update` fetches a dated dump",
 				humanCount(m.Records))
 		}
-		return "No dump downloaded yet — run `dblp update` to fetch the dblp.org dump."
+		return "No dump downloaded yet — run `dblp-cli update` to fetch the dblp.org dump."
 	}
 	age := int(m.Age().Hours() / 24)
 	s := fmt.Sprintf("Dump: %s (%d day(s) old) · %s records",
 		m.DumpDate.Format("2006-01-02"), age, humanCount(m.Records))
 	if m.Stale() {
-		s += " · ⚠ stale, refresh with `dblp update`"
+		s += " · ⚠ stale, refresh with `dblp-cli update`"
 	}
 	return s
 }

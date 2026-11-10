@@ -1,15 +1,15 @@
-// Command dblp is an offline search engine over the dblp.org computer-science
+// Command dblp-cli is an offline search engine over the dblp.org computer-science
 // bibliography. It downloads the full XML dump, indexes it locally with SQLite
 // full-text search, and exports selected records to BibTeX or the clipboard.
 //
 // Usage:
 //
-//	dblp                       interactive search (default)
-//	dblp update [--force]      download the latest dump and (re)index
-//	dblp index [path]          (re)build the index from a local dump
-//	dblp search <query>        one-shot search, print numbered results
-//	dblp bibtex <key>... [-c]  print/copy BibTeX for dblp keys
-//	dblp status                show dump freshness and check for updates
+//	dblp-cli                       interactive search (default)
+//	dblp-cli update [--force]      download the latest dump and (re)index
+//	dblp-cli index [path]          (re)build the index from a local dump
+//	dblp-cli search <query>        one-shot search, print numbered results
+//	dblp-cli bibtex <key>... [-c]  print/copy BibTeX for dblp keys
+//	dblp-cli status                show dump freshness and check for updates
 package main
 
 import (
@@ -88,7 +88,7 @@ func main() {
 			}
 		}
 		if len(keys) == 0 {
-			fmt.Fprintln(os.Stderr, "usage: dblp bibtex <key>... [-c] [-o file.bib]")
+			fmt.Fprintln(os.Stderr, "usage: dblp-cli bibtex <key>... [-c] [-o file.bib]")
 			os.Exit(2)
 		}
 		fail(app.Bibtex(keys, outFile, toClip))
@@ -117,7 +117,7 @@ func fail(err error) {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, `dblp — offline search over the dblp.org bibliography
+	fmt.Fprintln(os.Stderr, `dblp-cli — offline search over the dblp.org bibliography
 
 Commands:
   update [--force]     download the latest dump and rebuild the index
