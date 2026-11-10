@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/wichtfx/dblp-cli/internal/dump"
@@ -160,5 +161,42 @@ func TestBuilderKeepsFirstOfDuplicateKeys(t *testing.T) {
 	}
 	if _, err := st.db.Exec(`INSERT INTO pubs(key) VALUES('journals/x/Dup')`); err == nil {
 		t.Fatal("pubs accepts a duplicate key after the build")
+	}
+}
+
+func TestGetRestoresFieldsLeftOutOfStoredJSON(t *testing.T) {
+	st, err := Open(t.TempDir() + "/dblp.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	b, err := st.NewBuilder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := dump.Record{Type: "article", Key: "journals/cacm/Dijkstra68a", MDate: "2020-01-01",
+		Authors: []string{"Edsger W. Dijkstra"}, Title: "Go To Statement Considered Harmful.",
+		Year: "1968", Journal: "Commun. ACM", Volume: "11"}
+	if err := b.Add(want); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var blob string
+	if err := st.db.QueryRow(`SELECT data FROM pubs`).Scan(&blob); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{`"type"`, `"key"`, `"title"`, `"year"`} {
+		if strings.Contains(blob, field) {
+			t.Errorf("stored JSON has %s: %s", field, blob)
+		}
+	}
+	got, ok, err := st.Get(want.Key)
+	if err != nil || !ok {
+		t.Fatalf("Get: %v, %v", ok, err)
+	}
+	if fmt.Sprintf("%#v", got) != fmt.Sprintf("%#v", want) {
+		t.Fatalf("Get = %#v, want %#v", got, want)
 	}
 }

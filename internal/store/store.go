@@ -2,7 +2,8 @@
 //
 // Layout:
 //
-//	pubs  - one row per record; `data` holds the full record as JSON so we
+//	pubs  - one row per record; `data` holds the record as JSON, without the
+//	        fields that have columns of their own, so we
 //	        can regenerate BibTeX without re-parsing the dump.
 //	fts   - FTS5 virtual table (external-content over pubs) providing
 //	        full-text search with BM25 ranking over title/authors/venue/key.
@@ -32,7 +33,7 @@ CREATE TABLE IF NOT EXISTS pubs (
   authors TEXT,
   venue   TEXT,
   year    TEXT,
-  data    TEXT          -- full record as JSON
+  data    TEXT          -- record as JSON, without the fields that have columns
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(
   title, authors, venue, key,
@@ -111,7 +112,11 @@ type PreparedRecord struct {
 }
 
 func PrepareRecord(r dump.Record) (PreparedRecord, error) {
-	blob, err := json.Marshal(r)
+	// The stored JSON leaves out the fields that have columns of their own;
+	// Get restores them from the columns.
+	stored := r
+	stored.Type, stored.Key, stored.Title, stored.Year = "", "", "", ""
+	blob, err := json.Marshal(stored)
 	if err != nil {
 		return PreparedRecord{}, err
 	}
@@ -409,8 +414,8 @@ func ColumnPhrase(col, val string) string {
 
 // Get returns the full record for a dblp key, ok=false if not found.
 func (s *Store) Get(key string) (dump.Record, bool, error) {
-	var blob string
-	err := s.db.QueryRow(`SELECT data FROM pubs WHERE key = ?`, key).Scan(&blob)
+	var typ, title, year, blob string
+	err := s.db.QueryRow(`SELECT type, title, year, data FROM pubs WHERE key = ?`, key).Scan(&typ, &title, &year, &blob)
 	if err == sql.ErrNoRows {
 		return dump.Record{}, false, nil
 	}
@@ -421,6 +426,7 @@ func (s *Store) Get(key string) (dump.Record, bool, error) {
 	if err := json.Unmarshal([]byte(blob), &r); err != nil {
 		return dump.Record{}, false, err
 	}
+	r.Type, r.Key, r.Title, r.Year = typ, key, title, year
 	return r, true, nil
 }
 

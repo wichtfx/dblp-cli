@@ -22,8 +22,8 @@ var RecordTypes = map[string]bool{
 // Record is one bibliographic entry. Fields map directly onto dblp's XML
 // children; multi-valued elements (authors, editors, ee) become slices.
 type Record struct {
-	Type      string   `json:"type"`
-	Key       string   `xml:"key,attr" json:"key"`
+	Type      string   `json:"type,omitempty"`
+	Key       string   `xml:"key,attr" json:"key,omitempty"`
 	MDate     string   `xml:"mdate,attr" json:"mdate,omitempty"`
 	Authors   []string `xml:"author" json:"authors,omitempty"`
 	Editors   []string `xml:"editor" json:"editors,omitempty"`
