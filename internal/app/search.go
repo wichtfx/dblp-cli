@@ -58,6 +58,32 @@ func Bibtex(keys []string, outFile string, toClip bool) error {
 	return emit(out, outFile, toClip, len(recs))
 }
 
+// DOI renders the records with the given DOIs to stdout, or to a file /
+// clipboard. A DOI that several records carry yields all of them.
+func DOI(dois []string, outFile string, toClip bool) error {
+	st, err := openIndex()
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	var recs []dump.Record
+	for _, doi := range dois {
+		found, err := st.ByDOI(doi)
+		if err != nil {
+			return err
+		}
+		if len(found) == 0 {
+			fmt.Fprintf(os.Stderr, "warning: DOI not found: %s\n", doi)
+		}
+		recs = append(recs, found...)
+	}
+	if len(recs) == 0 {
+		return fmt.Errorf("no matching records")
+	}
+	return emit(bibtex.RenderMany(recs), outFile, toClip, len(recs))
+}
+
 // emit sends rendered bibtex to the chosen destination.
 func emit(text, outFile string, toClip bool, n int) error {
 	switch {

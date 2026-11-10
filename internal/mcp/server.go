@@ -81,6 +81,14 @@ var toolList = []tool{
 		Annotations: readOnlyAnnotations(),
 	},
 	{
+		Name:        "get_publication_by_doi",
+		Description: "Get the complete bibliographic metadata of the DBLP records whose links carry one DOI.",
+		InputSchema: schema(map[string]any{
+			"doi": map[string]any{"type": "string", "description": "DOI, bare or as a doi.org URL, for example 10.1145/362929.362947"},
+		}, []string{"doi"}),
+		Annotations: readOnlyAnnotations(),
+	},
+	{
 		Name:        "get_bibtex",
 		Description: "Generate BibTeX for one or more exact DBLP keys.",
 		InputSchema: schema(map[string]any{
@@ -258,6 +266,19 @@ func callTool(st *store.Store, raw json.RawMessage) (any, error) {
 			return nil, fmt.Errorf("publication not found: %s", key)
 		}
 		value = record
+	case "get_publication_by_doi":
+		doi, err := stringArg(p.Arguments, "doi")
+		if err != nil {
+			return nil, err
+		}
+		records, err := st.ByDOI(doi)
+		if err != nil {
+			return nil, err
+		}
+		if len(records) == 0 {
+			return nil, fmt.Errorf("no publication with DOI %s", doi)
+		}
+		value = map[string]any{"publications": records}
 	case "get_bibtex":
 		keys, err := stringSliceArg(p.Arguments, "keys")
 		if err != nil {

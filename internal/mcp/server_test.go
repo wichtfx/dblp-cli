@@ -24,6 +24,7 @@ func testStore(t *testing.T) *store.Store {
 	if err := b.Add(dump.Record{
 		Type: "article", Key: "journals/cacm/Dijkstra68", Title: "Go To Statement Considered Harmful",
 		Authors: []string{"Edsger W. Dijkstra"}, Journal: "Commun. ACM", Year: "1968",
+		EE: []string{"https://doi.org/10.1145/362929.362947"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -120,5 +121,17 @@ func TestUnknownToolIsProtocolError(t *testing.T) {
 		Params: json.RawMessage(`{"name":"no_such_tool","arguments":{}}`)})
 	if resp.Error == nil || resp.Error.Code != -32602 || resp.Result != nil {
 		t.Fatalf("response = %#v", resp)
+	}
+}
+
+func TestGetPublicationByDOI(t *testing.T) {
+	st := testStore(t)
+	got := call(t, st, "get_publication_by_doi", map[string]any{"doi": "doi:10.1145/362929.362947"})
+	if !strings.Contains(got, "journals/cacm/Dijkstra68") || strings.Contains(got, "Dijkstra69") {
+		t.Errorf("DOI lookup response: %s", got)
+	}
+	params, _ := json.Marshal(map[string]any{"name": "get_publication_by_doi", "arguments": map[string]any{"doi": "10.1/none"}})
+	if _, err := callTool(st, params); err == nil {
+		t.Error("unknown DOI returned no error")
 	}
 }

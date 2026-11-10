@@ -58,7 +58,7 @@ func TestBuilderFlushesAuthorBatches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < authorBatchSize+1; i++ {
+	for i := 0; i < linkBatchSize+1; i++ {
 		author := fmt.Sprintf("Author %04d", i)
 		if err := b.Add(dump.Record{
 			Type: "article", Key: fmt.Sprintf("journals/test/%04d", i),
@@ -198,5 +198,42 @@ func TestGetRestoresFieldsLeftOutOfStoredJSON(t *testing.T) {
 	}
 	if fmt.Sprintf("%#v", got) != fmt.Sprintf("%#v", want) {
 		t.Fatalf("Get = %#v, want %#v", got, want)
+	}
+}
+
+func TestByDOI(t *testing.T) {
+	st, err := Open(t.TempDir() + "/dblp.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	b, err := st.NewBuilder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range []dump.Record{
+		{Type: "article", Key: "journals/cacm/Dijkstra68a", Title: "Go To Statement Considered Harmful.",
+			EE: []string{"https://doi.org/10.1145/362929.362947"}},
+		{Type: "article", Key: "journals/x/Other", Title: "Other", EE: []string{"https://example.org/x"}},
+	} {
+		if err := b.Add(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.ByDOI("https://doi.org/10.1145/362929.362947")
+	if err != nil || len(got) != 1 || got[0].Key != "journals/cacm/Dijkstra68a" {
+		t.Fatalf("ByDOI = %#v, %v", got, err)
+	}
+	if got, err := st.ByDOI("10.1145/none"); err != nil || len(got) != 0 {
+		t.Fatalf("ByDOI(unknown) = %#v, %v", got, err)
+	}
+	if _, err := st.db.Exec(`DROP TABLE doi_pubs`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ByDOI("10.1145/362929.362947"); err != ErrNoDOIIndex {
+		t.Fatalf("ByDOI on an old index: %v", err)
 	}
 }

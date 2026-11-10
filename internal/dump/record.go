@@ -2,6 +2,7 @@
 package dump
 
 import (
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -86,4 +87,38 @@ func (r Record) Link() string {
 // IsHomepage reports whether the record represents a DBLP author homepage.
 func (r Record) IsHomepage() bool {
 	return r.Type == "www" && strings.HasPrefix(r.Key, "homepages/")
+}
+
+// DOIs returns the normalised DOI of every doi.org link of the record.
+func (r Record) DOIs() []string {
+	var out []string
+	for _, ee := range r.EE {
+		if i := strings.Index(ee, "doi.org/"); i >= 0 {
+			out = append(out, NormalizeDOI(ee[i+len("doi.org/"):]))
+		}
+	}
+	return out
+}
+
+// NormalizeDOI reduces a DOI written as a bare DOI, a doi.org URL or with a
+// "doi:" prefix to its bare, lower-case form: DOIs are case-insensitive, and
+// a URL may percent-encode some of their characters.
+func NormalizeDOI(s string) string {
+	s = strings.TrimSpace(s)
+	lower := strings.ToLower(s)
+	for _, prefix := range []string{"https://", "http://"} {
+		if strings.HasPrefix(lower, prefix) {
+			s, lower = s[len(prefix):], lower[len(prefix):]
+		}
+	}
+	for _, prefix := range []string{"dx.doi.org/", "doi.org/", "doi:"} {
+		if strings.HasPrefix(lower, prefix) {
+			s = s[len(prefix):]
+			break
+		}
+	}
+	if unescaped, err := url.PathUnescape(s); err == nil {
+		s = unescaped
+	}
+	return strings.ToLower(strings.TrimSpace(s))
 }

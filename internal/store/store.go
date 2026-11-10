@@ -12,6 +12,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -86,16 +87,17 @@ type Builder struct {
 	s    *Store
 	tx   *sql.Tx
 	ins  *sql.Stmt
-	auth []authorLink
+	auth []link // author identity -> publication
+	dois []link // DOI -> publication
 	rowN int64
 }
 
-type authorLink struct {
-	author string
-	pubID  int64
+type link struct {
+	value string
+	pubID int64
 }
 
-const authorBatchSize = 1000
+const linkBatchSize = 1000
 
 // PreparedRecord contains the CPU-side representation used by the SQLite
 // writer. Preparing records is independent of the database and can therefore
@@ -106,6 +108,7 @@ type PreparedRecord struct {
 	Title      string
 	Authors    string
 	RawAuthors []string
+	DOIs       []string
 	Venue      string
 	Year       string
 	Data       string
@@ -126,19 +129,23 @@ func PrepareRecord(r dump.Record) (PreparedRecord, error) {
 		Title:      r.Title,
 		Authors:    strings.Join(r.CleanAuthors(), ", "),
 		RawAuthors: r.Authors,
+		DOIs:       r.DOIs(),
 		Venue:      r.Venue(),
 		Year:       r.Year,
 		Data:       string(blob),
 	}, nil
 }
 
-// loadSchema replaces the tables for a bulk build. The unique index on key
-// and the author table are built by Commit after the load: building an index
-// from all rows at once is several times faster than updating it per row.
+// loadSchema replaces the tables for a bulk build. The unique index on key,
+// the author table and the DOI table are built by Commit after the load:
+// building an index from all rows at once is several times faster than
+// updating it per row.
 const loadSchema = `
 DROP TABLE IF EXISTS fts;
 DROP TABLE IF EXISTS author_pubs;
 DROP TABLE IF EXISTS author_links;
+DROP TABLE IF EXISTS doi_pubs;
+DROP TABLE IF EXISTS doi_links;
 DROP TABLE IF EXISTS pubs;
 CREATE TABLE pubs (
   id      INTEGER PRIMARY KEY,
@@ -156,6 +163,7 @@ CREATE VIRTUAL TABLE fts USING fts5(
   tokenize='unicode61 remove_diacritics 2'
 );
 CREATE TABLE author_links (author TEXT NOT NULL, pub_id INTEGER NOT NULL);
+CREATE TABLE doi_links (doi TEXT NOT NULL, pub_id INTEGER NOT NULL);
 `
 
 // NewBuilder resets the index and returns a Builder ready for Add calls.
@@ -182,7 +190,8 @@ func (s *Store) NewBuilder() (*Builder, error) {
 		tx.Rollback()
 		return nil, err
 	}
-	return &Builder{s: s, tx: tx, ins: ins, auth: make([]authorLink, 0, authorBatchSize)}, nil
+	return &Builder{s: s, tx: tx, ins: ins,
+		auth: make([]link, 0, linkBatchSize), dois: make([]link, 0, linkBatchSize)}, nil
 }
 
 // Add inserts one record into the index.
@@ -202,32 +211,41 @@ func (b *Builder) AddPrepared(r PreparedRecord) error {
 		return err
 	}
 	for _, author := range r.RawAuthors {
-		b.auth = append(b.auth, authorLink{author: author, pubID: b.rowN})
+		b.auth = append(b.auth, link{value: author, pubID: b.rowN})
 	}
-	if len(b.auth) >= authorBatchSize {
-		return b.flushAuthors()
+	for _, doi := range r.DOIs {
+		b.dois = append(b.dois, link{value: doi, pubID: b.rowN})
+	}
+	if len(b.auth) >= linkBatchSize {
+		if err := b.flush("author_links", &b.auth); err != nil {
+			return err
+		}
+	}
+	if len(b.dois) >= linkBatchSize {
+		return b.flush("doi_links", &b.dois)
 	}
 	return nil
 }
 
-func (b *Builder) flushAuthors() error {
-	if len(b.auth) == 0 {
+// flush inserts the buffered links into table and empties the buffer.
+func (b *Builder) flush(table string, links *[]link) error {
+	if len(*links) == 0 {
 		return nil
 	}
 	var query strings.Builder
-	query.WriteString("INSERT INTO author_links(author,pub_id) VALUES ")
-	args := make([]any, 0, len(b.auth)*2)
-	for i, link := range b.auth {
+	query.WriteString("INSERT INTO " + table + " VALUES ")
+	args := make([]any, 0, len(*links)*2)
+	for i, l := range *links {
 		if i > 0 {
 			query.WriteByte(',')
 		}
 		query.WriteString("(?,?)")
-		args = append(args, link.author, link.pubID)
+		args = append(args, l.value, l.pubID)
 	}
 	if _, err := b.tx.Exec(query.String(), args...); err != nil {
 		return err
 	}
-	b.auth = b.auth[:0]
+	*links = (*links)[:0]
 	return nil
 }
 
@@ -235,12 +253,15 @@ func (b *Builder) flushAuthors() error {
 // many remain once duplicate keys are removed.
 func (b *Builder) Count() int64 { return b.rowN }
 
-// Commit builds the unique key index and the author table from the loaded
-// rows, builds FTS in one bulk pass, and then optimises it. Building each
-// index after the load is considerably cheaper than updating it once for
-// every publication.
+// Commit builds the unique key index, the author table and the DOI table
+// from the loaded rows, builds FTS in one bulk pass, and then optimises it.
+// Building each index after the load is considerably cheaper than updating
+// it once for every publication.
 func (b *Builder) Commit() error {
-	if err := b.flushAuthors(); err != nil {
+	if err := b.flush("author_links", &b.auth); err != nil {
+		return err
+	}
+	if err := b.flush("doi_links", &b.dois); err != nil {
 		return err
 	}
 	b.ins.Close()
@@ -248,9 +269,9 @@ func (b *Builder) Commit() error {
 	if err != nil {
 		return err
 	}
-	links := `SELECT author, pub_id FROM author_links`
+	where := ""
 	if deduped {
-		links += ` WHERE pub_id IN (SELECT id FROM pubs)`
+		where = ` WHERE pub_id IN (SELECT id FROM pubs)`
 	}
 	for _, q := range []string{
 		`CREATE TABLE author_pubs (
@@ -258,8 +279,15 @@ func (b *Builder) Commit() error {
 		  pub_id INTEGER NOT NULL,
 		  PRIMARY KEY (author, pub_id)
 		) WITHOUT ROWID`,
-		`INSERT OR IGNORE INTO author_pubs ` + links + ` ORDER BY author, pub_id`,
+		`INSERT OR IGNORE INTO author_pubs SELECT author, pub_id FROM author_links` + where + ` ORDER BY author, pub_id`,
 		`DROP TABLE author_links`,
+		`CREATE TABLE doi_pubs (
+		  doi    TEXT NOT NULL,
+		  pub_id INTEGER NOT NULL,
+		  PRIMARY KEY (doi, pub_id)
+		) WITHOUT ROWID`,
+		`INSERT OR IGNORE INTO doi_pubs SELECT doi, pub_id FROM doi_links` + where + ` ORDER BY doi, pub_id`,
+		`DROP TABLE doi_links`,
 	} {
 		if _, err := b.tx.Exec(q); err != nil {
 			return err
@@ -347,6 +375,46 @@ func (s *Store) SearchVenue(venue, year string, limit, offset int) ([]Result, er
 	}
 	defer rows.Close()
 	return scanResults(rows)
+}
+
+// ErrNoDOIIndex reports an index built before DOI lookup existed.
+var ErrNoDOIIndex = errors.New("this index has no DOI table; rebuild it with `dblp-cli index`")
+
+// ByDOI returns the records whose links carry doi, which may be written as a
+// bare DOI, a doi.org URL or with a "doi:" prefix.
+func (s *Store) ByDOI(doi string) ([]dump.Record, error) {
+	rows, err := s.db.Query(`SELECT p.key FROM doi_pubs d JOIN pubs p ON p.id = d.pub_id
+		WHERE d.doi = ? ORDER BY p.id`, dump.NormalizeDOI(doi))
+	if err != nil {
+		if strings.Contains(err.Error(), "no such table") {
+			return nil, ErrNoDOIIndex
+		}
+		return nil, err
+	}
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var recs []dump.Record
+	for _, key := range keys {
+		r, ok, err := s.Get(key)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			recs = append(recs, r)
+		}
+	}
+	return recs, nil
 }
 
 // Search runs a free-text query and returns up to limit results ranked by

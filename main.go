@@ -9,6 +9,7 @@
 //	dblp-cli index [path]          (re)build the index from a local dump
 //	dblp-cli search <query>        one-shot search, print numbered results
 //	dblp-cli bibtex <key>... [-c]  print/copy BibTeX for dblp keys
+//	dblp-cli doi <doi>... [-c]     print/copy BibTeX for DOIs
 //	dblp-cli status                show dump freshness and check for updates
 package main
 
@@ -71,27 +72,12 @@ func main() {
 		fail(app.Search(strings.Join(terms, " "), limit))
 
 	case "bibtex", "bib", "cite":
-		// Parse manually so -c/-o may appear anywhere among the keys.
-		toClip, outFile := false, ""
-		var keys []string
-		for i := 0; i < len(args); i++ {
-			switch args[i] {
-			case "-c", "--clip":
-				toClip = true
-			case "-o", "--out":
-				if i+1 < len(args) {
-					outFile = args[i+1]
-					i++
-				}
-			default:
-				keys = append(keys, args[i])
-			}
-		}
-		if len(keys) == 0 {
-			fmt.Fprintln(os.Stderr, "usage: dblp-cli bibtex <key>... [-c] [-o file.bib]")
-			os.Exit(2)
-		}
+		keys, outFile, toClip := exportArgs(args, "usage: dblp-cli bibtex <key>... [-c] [-o file.bib]")
 		fail(app.Bibtex(keys, outFile, toClip))
+
+	case "doi":
+		dois, outFile, toClip := exportArgs(args, "usage: dblp-cli doi <doi>... [-c] [-o file.bib]")
+		fail(app.DOI(dois, outFile, toClip))
 
 	case "status", "info":
 		fail(app.Status())
@@ -109,6 +95,29 @@ func main() {
 	}
 }
 
+// exportArgs parses the arguments of an export command by hand, so that -c
+// and -o may appear anywhere among the items.
+func exportArgs(args []string, usage string) (items []string, outFile string, toClip bool) {
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "-c", "--clip":
+			toClip = true
+		case "-o", "--out":
+			if i+1 < len(args) {
+				outFile = args[i+1]
+				i++
+			}
+		default:
+			items = append(items, args[i])
+		}
+	}
+	if len(items) == 0 {
+		fmt.Fprintln(os.Stderr, usage)
+		os.Exit(2)
+	}
+	return items, outFile, toClip
+}
+
 func fail(err error) {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
@@ -124,6 +133,7 @@ Commands:
   index [path]         rebuild the index from a local dump
   search <query>       search and print numbered results (-n N, -i)
   bibtex <key>...      print BibTeX (-c copy to clipboard, -o write to file)
+  doi <doi>...         print BibTeX of the records with these DOIs (-c, -o)
   status               show dump date/freshness and check for updates
   mcp                  serve read-only LLM tools over MCP stdio
   (no command)         interactive search

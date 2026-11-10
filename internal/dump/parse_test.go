@@ -138,3 +138,24 @@ func TestParseRejectsTruncatedDump(t *testing.T) {
 		t.Fatal("a truncated dump parsed without error")
 	}
 }
+
+func TestNormalizeDOI(t *testing.T) {
+	for _, in := range []string{
+		"10.1145/362929.362947",
+		"https://doi.org/10.1145/362929.362947",
+		"http://dx.doi.org/10.1145/362929.362947",
+		"doi:10.1145/362929.362947",
+		" DOI:10.1145/362929.362947 ",
+	} {
+		if got := NormalizeDOI(in); got != "10.1145/362929.362947" {
+			t.Errorf("NormalizeDOI(%q) = %q", in, got)
+		}
+	}
+	if got := NormalizeDOI("https://doi.org/10.1002/(SICI)1097-4571%28199806%2949:8"); got != "10.1002/(sici)1097-4571(199806)49:8" {
+		t.Errorf("percent-encoded DOI = %q", got)
+	}
+	r := Record{EE: []string{"https://arxiv.org/abs/1706.03762", "https://doi.org/10.5555/3295222.3295349"}}
+	if got := r.DOIs(); len(got) != 1 || got[0] != "10.5555/3295222.3295349" {
+		t.Errorf("DOIs = %q", got)
+	}
+}

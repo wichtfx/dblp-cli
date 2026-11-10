@@ -34,6 +34,7 @@ dblp-cli                                         # interactive search, the defau
 | `dblp-cli index [path]`     | Rebuild the index from a local dump, by default the downloaded one.                                                                                  |
 | `dblp-cli search <query>`   | Search and print numbered results. `-n N` sets the number of results; `-i` opens interactive mode.                                                   |
 | `dblp-cli bibtex <key>...`  | Print BibTeX for one or more dblp keys. `-c` copies it to the clipboard; `-o file.bib` writes it to a file.                                          |
+| `dblp-cli doi <doi>...`     | Print BibTeX for the records with one or more DOIs, bare or as doi.org links. `-c` and `-o` work as for `bibtex`.                                    |
 | `dblp-cli status`           | Print the dump date, its age and the number of records, and check dblp.org for a newer dump.                                                         |
 | `dblp-cli mcp`              | Start a read-only MCP server on standard input and output, for LLM clients.                                                                          |
 | `dblp-cli` (no arguments)   | Interactive search.                                                                                                                                  |
@@ -102,7 +103,7 @@ All data is kept in `$XDG_DATA_HOME/dblp-cli`, by default `~/.local/share/dblp-c
 
 - `dblp.xml.gz`, the compressed dump;
 - `dblp.db`, the SQLite full-text index;
-- `meta.json`, the dump date, the times of the last download and the last indexing, and the number of records.
+- `meta.json`, the date of the indexed dump and of the downloaded one, the times of the last download and the last indexing, and the number of records.
 
 ## Access for language models over MCP
 
@@ -129,6 +130,7 @@ The server requires an index: run `dblp-cli update` first, or `dblp-cli index` f
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
 | `search_publications`        | Search the index, by full text or by field, and return a ranked summary of each publication with its dblp key. | `query`, optional `limit` and `offset`          |
 | `get_publication`            | Return the complete stored dblp record for one key.                                                            | `key`                                           |
+| `get_publication_by_doi`     | Return the complete stored dblp records whose links carry one DOI.                                             | `doi`                                           |
 | `get_bibtex`                 | Return BibTeX for up to 100 dblp keys in one call.                                                             | `keys`                                          |
 | `browse_author_publications` | List the publications of one dblp author identity, without the publications of authors with the same name.     | `author`, optional `year`, `limit` and `offset` |
 | `browse_venue_publications`  | List the publications of one journal, conference or book title.                                                | `venue`, optional `year`, `limit` and `offset`  |
