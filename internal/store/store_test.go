@@ -107,3 +107,18 @@ func TestSearchVenueIsExact(t *testing.T) {
 		t.Fatalf("SearchVenue returned %#v", got)
 	}
 }
+
+func TestBuildMatchMatchesShortTermsExactly(t *testing.T) {
+	tests := map[string]string{
+		"dijkstra go to statement": `"dijkstra"* "go" "to" "statement"*`,
+		"co":                       `"co"`,
+		"über":                     `"über"*`,
+		"ü":                        `"ü"`,
+		"title:transformer":        "title:transformer",
+	}
+	for in, want := range tests {
+		if got := buildMatch(in); got != want {
+			t.Errorf("buildMatch(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

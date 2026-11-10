@@ -69,7 +69,7 @@ Selecting an author homepage lists that author's publications. The index stores 
 
 ## Searching
 
-A free-text query matches each term as a prefix against the title, the authors, the venue and the key: `dblp-cli search vaswani attention` finds the papers with author Vaswani and the title word "attention".
+A free-text query matches each term of three or more letters as a prefix, and each shorter term exactly, against the title, the authors, the venue and the key: `dblp-cli search vaswani attention` finds the papers with author Vaswani and the title word "attention".
 
 Search ignores diacritics: `schmidhuber` matches _Schmidhüber_.
 

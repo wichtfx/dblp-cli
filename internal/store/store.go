@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/wichtfx/dblp-cli/internal/dump"
 
@@ -368,8 +369,12 @@ func (s *Store) Count() (int64, error) {
 }
 
 // buildMatch turns a free-text query into an FTS5 MATCH expression. Bare
-// words become prefix terms ANDed together; anything containing FTS5 operator
+// words become prefix terms ANDed together, except words of one or two
+// letters, which are matched exactly: as prefixes they match most of the
+// index and make the search take seconds; anything containing FTS5 operator
 // characters is passed through so power users can write their own queries.
+const shortTerm = 2
+
 func buildMatch(q string) string {
 	q = strings.TrimSpace(q)
 	if q == "" {
@@ -381,7 +386,12 @@ func buildMatch(q string) string {
 	fields := strings.Fields(q)
 	terms := make([]string, 0, len(fields))
 	for _, f := range fields {
-		terms = append(terms, fmt.Sprintf(`"%s"*`, strings.ReplaceAll(f, `"`, "")))
+		f = strings.ReplaceAll(f, `"`, "")
+		if utf8.RuneCountInString(f) <= shortTerm {
+			terms = append(terms, fmt.Sprintf(`"%s"`, f))
+		} else {
+			terms = append(terms, fmt.Sprintf(`"%s"*`, f))
+		}
 	}
 	return strings.Join(terms, " ")
 }
