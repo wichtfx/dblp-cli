@@ -63,7 +63,7 @@ dblp> q            # quit
 
 The Up and Down arrow keys browse the command history. The Left and Right arrow keys show the previous and next page of results, as `p` and `n` do.
 
-Typing the number of a result selects it, and the selected result's authors, numbered, its venue and its year are printed. `au <k>` or the number `k` searches for the publications of the selection's `k`-th author. `ve` searches for the publications of the selection's venue. Both take a year as a further argument, and `y` stands for the selection's year. `n` and `p` page through these results as through any search.
+Typing the number of a result selects it, and the selected result's authors, numbered, its venue and its year are printed. `au <k>` or the number `k` searches for the publications of the selection's `k`-th author, and `au` without `k` for those of its first author. `ve` searches for the publications of the selection's venue. Both take a year as a further argument, and `y` stands for the selection's year. `n` and `p` page through these results as through any search.
 
 Selecting an author homepage lists that author's publications. The index stores dblp's identity of each author, so two authors with the same name are kept apart. An index built by a version of dblp-cli without this feature does not have that identity; `dblp-cli index` rebuilds it with it.
 

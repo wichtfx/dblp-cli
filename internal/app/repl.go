@@ -198,10 +198,12 @@ func facetAuthor(sel *dump.Record, rest string) (activeQuery, bool) {
 	}
 	authors := sel.CleanAuthors()
 	f := strings.Fields(rest)
-	k := 1
+	k, yearAt := 1, 0
 	if len(f) > 0 {
-		if n, err := strconv.Atoi(f[0]); err == nil {
-			k = n
+		// A four-digit number beyond the author count is a year: `au 2020`
+		// means the first author in 2020.
+		if n, err := strconv.Atoi(f[0]); err == nil && !(len(f[0]) == 4 && n > len(authors)) {
+			k, yearAt = n, 1
 		}
 	}
 	if k < 1 || k > len(authors) {
@@ -209,7 +211,7 @@ func facetAuthor(sel *dump.Record, rest string) (activeQuery, bool) {
 		return activeQuery{}, false
 	}
 	name := authors[k-1]
-	year := resolveYear(f, 1, sel.Year)
+	year := resolveYear(f, yearAt, sel.Year)
 	label := "author: " + name
 	if year != "" {
 		label += " · " + year
@@ -348,7 +350,7 @@ func printREPLHelp() {
 Interactive search. Commands:
   <text>            search publications (title, authors, venue, key)
   <number>          select a result; then browse one of its numbered authors
-  au <k> [year|y]   re-search by the selection's k-th author (y = its year)
+  au [k] [year|y]   re-search by the selection's k-th author, by default the first (y = its year)
   ve [year|y]       re-search by the selection's venue
   n / p             next / previous page
   ↑ / ↓             browse command history

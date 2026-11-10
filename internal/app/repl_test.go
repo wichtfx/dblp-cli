@@ -58,3 +58,24 @@ func TestSelectionUsesDisplayedNumbers(t *testing.T) {
 		}
 	}
 }
+
+func TestFacetAuthorReadsYearWithoutAuthorNumber(t *testing.T) {
+	record := dump.Record{Authors: []string{"Ada Author", "Ben Author"}, Year: "2024"}
+	tests := []struct {
+		rest, author, year string
+	}{
+		{"2020", "Ada Author", "2020"},
+		{"y", "Ada Author", "2024"},
+		{"2 2020", "Ben Author", "2020"},
+		{"", "Ada Author", ""},
+	}
+	for _, tt := range tests {
+		q, ok := facetAuthor(&record, tt.rest)
+		if !ok || q.author != tt.author || q.year != tt.year {
+			t.Fatalf("facetAuthor(%q) = %#v, %v; want author %q, year %q", tt.rest, q, ok, tt.author, tt.year)
+		}
+	}
+	if _, ok := facetAuthor(&record, "3"); ok {
+		t.Fatal("facetAuthor accepted author 3 of 2")
+	}
+}
