@@ -104,8 +104,25 @@ func doiOf(r dump.Record) string {
 
 // escape protects the handful of characters that are special in BibTeX
 // values. dblp text is already UTF-8 and modern engines (biber) accept it,
-// so we keep escaping minimal and non-destructive.
-func escape(s string) string { return escaper.Replace(s) }
+// so we keep escaping minimal and non-destructive. Some dblp titles contain
+// TeX mathematics, such as $\mathbb {F}_{p^{2m}}$: when the dollar signs pair
+// up, the text between them is kept as written, and only the text outside
+// is escaped.
+func escape(s string) string {
+	parts := strings.Split(s, "$")
+	if len(parts) < 3 || len(parts)%2 == 0 {
+		return escaper.Replace(s)
+	}
+	var b strings.Builder
+	for i, part := range parts {
+		if i%2 == 0 {
+			b.WriteString(escaper.Replace(part))
+			continue
+		}
+		b.WriteString("$" + part + "$")
+	}
+	return b.String()
+}
 
 var escaper = strings.NewReplacer(
 	"{", "\\{",

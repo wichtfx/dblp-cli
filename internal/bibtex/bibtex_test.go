@@ -39,3 +39,17 @@ func TestRenderManyDedup(t *testing.T) {
 		t.Errorf("duplicate key not de-duplicated: got %d entries", n)
 	}
 }
+
+func TestEscapeKeepsMathematics(t *testing.T) {
+	tests := map[string]string{
+		`Polynomials over $\mathbb {F}_{p^{2m}}$ & more`: `Polynomials over $\mathbb {F}_{p^{2m}}$ \& more`,
+		`$x$ and $y$ in 50%`:                             `$x$ and $y$ in 50\%`,
+		`Cost is $5 {net}`:                               `Cost is \$5 \{net\}`,
+		`From $1 to $2 and $3`:                           `From \$1 to \$2 and \$3`,
+	}
+	for in, want := range tests {
+		if got := escape(in); got != want {
+			t.Errorf("escape(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
