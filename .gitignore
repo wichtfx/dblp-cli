@@ -29,3 +29,6 @@ meta.json
 *~
 .DS_Store
 Thumbs.db
+
+# Session scratch output
+/scratch/
