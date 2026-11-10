@@ -310,15 +310,6 @@ func parseSelection(sel string, n, offset int) []int {
 	return idxs
 }
 
-// asIndex parses a bare 1-based result number, ok only if in range.
-func asIndex(s string, n int) (int, bool) {
-	num, err := strconv.Atoi(s)
-	if err != nil || num < 1 || num > n {
-		return 0, false
-	}
-	return num - 1, true
-}
-
 // asResultIndex maps the absolute number printed beside a paged result back
 // to its position in the current page. Page two, for example, displays 16–30
 // rather than starting over at one.
