@@ -15,12 +15,18 @@ import (
 const StaleAfter = 30 * 24 * time.Hour
 
 // Meta is the persisted state describing the local data.
+//
+// SourceURL and DumpDate describe the dump the index was built from; the
+// Downloaded fields describe the dump file last downloaded. They differ after
+// a download whose indexing failed, or after indexing another dump.
 type Meta struct {
-	SourceURL    string    `json:"source_url"`
-	DumpDate     time.Time `json:"dump_date"`     // server Last-Modified of the dump
-	DownloadedAt time.Time `json:"downloaded_at"` // when we fetched it
-	IndexedAt    time.Time `json:"indexed_at"`    // when we last (re)built the index
-	Records      int64     `json:"records"`       // number of indexed records
+	SourceURL          string    `json:"source_url"`
+	DumpDate           time.Time `json:"dump_date"` // server Last-Modified of the indexed dump
+	DownloadedFrom     string    `json:"downloaded_from,omitempty"`
+	DownloadedDumpDate time.Time `json:"downloaded_dump_date,omitempty"` // server Last-Modified of the downloaded dump
+	DownloadedAt       time.Time `json:"downloaded_at"`                  // when we fetched it
+	IndexedAt          time.Time `json:"indexed_at"`                     // when we last (re)built the index
+	Records            int64     `json:"records"`                        // number of indexed records
 }
 
 // Load reads the metadata file. A missing file yields a zero-value Meta and

@@ -46,18 +46,22 @@ func Update(force bool) error {
 	}
 	m, _, _ := meta.Load()
 
+	downloaded := m.DownloadedDumpDate
+	if downloaded.IsZero() { // metadata written before the Downloaded fields
+		downloaded = m.DumpDate
+	}
 	if !force {
 		if remote, err := dump.RemoteDate(); err == nil && !remote.IsZero() {
-			if remote.Equal(m.DumpDate) && fileExists(dst) {
+			if remote.Equal(downloaded) && fileExists(dst) {
 				fmt.Fprintf(os.Stderr, "Already up to date (dump %s). Use --force to re-download.\n",
 					remote.Format("2006-01-02"))
-				if dbPath, err := paths.DB(); err == nil && fileExists(dbPath) && m.IndexedAt.After(m.DownloadedAt) {
+				if dbPath, err := paths.DB(); err == nil && fileExists(dbPath) && m.DumpDate.Equal(downloaded) {
 					return nil
 				}
 				return Index("")
 			}
 			fmt.Fprintf(os.Stderr, "New dump available: %s (local: %s)\n",
-				remote.Format("2006-01-02"), dateOrNone(m.DumpDate))
+				remote.Format("2006-01-02"), dateOrNone(downloaded))
 		}
 	}
 
@@ -66,8 +70,9 @@ func Update(force bool) error {
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
-	m.SourceURL = sourceURL
-	m.DumpDate = dumpDate
+	// The index still describes the previous dump until Index succeeds.
+	m.DownloadedFrom = sourceURL
+	m.DownloadedDumpDate = dumpDate
 	m.DownloadedAt = time.Now()
 	if err := m.Save(); err != nil {
 		return err
@@ -142,11 +147,15 @@ func Index(path string) error {
 
 	indexMeta.IndexedAt = time.Now()
 	indexMeta.Records = n
-	if !fromDownload {
-		// The index no longer reflects the downloaded dump, so its date and
-		// source no longer describe the data being searched.
+	switch {
+	case !fromDownload:
+		// The index does not come from a downloaded dump, so it has no
+		// known date or source.
 		indexMeta.SourceURL = ""
 		indexMeta.DumpDate = time.Time{}
+	case !indexMeta.DownloadedDumpDate.IsZero():
+		indexMeta.SourceURL = indexMeta.DownloadedFrom
+		indexMeta.DumpDate = indexMeta.DownloadedDumpDate
 	}
 	return indexMeta.Save()
 }

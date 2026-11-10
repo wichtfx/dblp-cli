@@ -1,11 +1,16 @@
 package app
 
 import (
+	"bytes"
+	"compress/gzip"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/wichtfx/dblp-cli/internal/dump"
 	"github.com/wichtfx/dblp-cli/internal/meta"
 )
 
@@ -29,5 +34,61 @@ func TestIndexOfAnotherDumpClearsDumpDate(t *testing.T) {
 	}
 	if !m.DumpDate.IsZero() || m.SourceURL != "" || m.Records != 1 {
 		t.Fatalf("meta after indexing another dump: %#v", m)
+	}
+}
+
+// serveDump serves body as the dump with the given date, from every source.
+func serveDump(t *testing.T, body []byte, date time.Time) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.ServeContent(w, r, "dblp.xml.gz", date, bytes.NewReader(body))
+	}))
+	t.Cleanup(srv.Close)
+	old := dump.Sources
+	dump.Sources = []string{srv.URL + "/dblp.xml.gz"}
+	t.Cleanup(func() { dump.Sources = old })
+}
+
+func gzipped(t *testing.T, s string) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	w := gzip.NewWriter(&b)
+	if _, err := w.Write([]byte(s)); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+func TestUpdateKeepsOldDumpDateWhenIndexingFails(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	old := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	if err := (meta.Meta{DumpDate: old, SourceURL: "https://dblp.org/xml/dblp.xml.gz"}).Save(); err != nil {
+		t.Fatal(err)
+	}
+	newer := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	serveDump(t, gzipped(t, `<dblp><article key="a"><title>Cut`), newer)
+	if err := Update(false); err == nil {
+		t.Fatal("Update of a truncated dump succeeded")
+	}
+	m, _, err := meta.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.DumpDate.Equal(old) || !m.DownloadedDumpDate.Equal(newer) {
+		t.Fatalf("meta after failed indexing: %#v", m)
+	}
+
+	serveDump(t, gzipped(t, `<dblp><article key="a"><title>Whole</title></article></dblp>`), newer)
+	if err := Update(true); err != nil {
+		t.Fatal(err)
+	}
+	if m, _, err = meta.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if !m.DumpDate.Equal(newer) || m.SourceURL != dump.Sources[0] || m.Records != 1 {
+		t.Fatalf("meta after successful update: %#v", m)
 	}
 }
