@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -157,7 +158,11 @@ func dispatch(st *store.Store, req request) response {
 		r.Result = map[string]any{"tools": toolList}
 	case "tools/call":
 		result, err := callTool(st, req.Params)
-		if err != nil {
+		var unknown unknownToolError
+		if errors.As(err, &unknown) {
+			// The specification treats an unknown tool as a protocol error.
+			r.Error = &rpcError{-32602, unknown.Error()}
+		} else if err != nil {
 			r.Result = map[string]any{"content": []any{map[string]any{"type": "text", "text": err.Error()}}, "isError": true}
 		} else {
 			r.Result = result
@@ -271,7 +276,7 @@ func callTool(st *store.Store, raw json.RawMessage) (any, error) {
 		}
 		value = map[string]any{"bibtex": strings.Join(rendered, "\n")}
 	default:
-		return nil, fmt.Errorf("unknown tool: %s", p.Name)
+		return nil, unknownToolError(p.Name)
 	}
 	b, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -282,6 +287,11 @@ func callTool(st *store.Store, raw json.RawMessage) (any, error) {
 		"structuredContent": value,
 	}, nil
 }
+
+// unknownToolError names a tool the server does not provide.
+type unknownToolError string
+
+func (e unknownToolError) Error() string { return "unknown tool: " + string(e) }
 
 func publicationPage(results []store.Result, limit, offset int) map[string]any {
 	hasMore := len(results) > limit

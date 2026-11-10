@@ -113,3 +113,12 @@ func call(t *testing.T, st *store.Store, name string, args map[string]any) strin
 	}
 	return string(b)
 }
+
+func TestUnknownToolIsProtocolError(t *testing.T) {
+	st := testStore(t)
+	resp := dispatch(st, request{JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "tools/call",
+		Params: json.RawMessage(`{"name":"no_such_tool","arguments":{}}`)})
+	if resp.Error == nil || resp.Error.Code != -32602 || resp.Result != nil {
+		t.Fatalf("response = %#v", resp)
+	}
+}
