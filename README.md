@@ -20,9 +20,9 @@ go build -o dblp-cli .   # a self-contained binary, without cgo
 
 ```sh
 dblp-cli update                                  # download the latest dump (about 1 GB, compressed) and build the index
-dblp-cli search dijkstra goto statement
-dblp-cli bibtex journals/cacm/Dijkstra68         # print BibTeX
-dblp-cli bibtex journals/cacm/Dijkstra68 -c      # copy BibTeX to the clipboard
+dblp-cli search dijkstra go to statement
+dblp-cli bibtex journals/cacm/Dijkstra68a        # print BibTeX
+dblp-cli bibtex journals/cacm/Dijkstra68a -c     # copy BibTeX to the clipboard
 dblp-cli                                         # interactive search, the default with no arguments
 ```
 
