@@ -127,6 +127,32 @@ func PrepareRecord(r dump.Record) (PreparedRecord, error) {
 	}, nil
 }
 
+// loadSchema replaces the tables for a bulk build. The unique index on key
+// and the author table are built by Commit after the load: building an index
+// from all rows at once is several times faster than updating it per row.
+const loadSchema = `
+DROP TABLE IF EXISTS fts;
+DROP TABLE IF EXISTS author_pubs;
+DROP TABLE IF EXISTS author_links;
+DROP TABLE IF EXISTS pubs;
+CREATE TABLE pubs (
+  id      INTEGER PRIMARY KEY,
+  key     TEXT,
+  type    TEXT,
+  title   TEXT,
+  authors TEXT,
+  venue   TEXT,
+  year    TEXT,
+  data    TEXT
+);
+CREATE VIRTUAL TABLE fts USING fts5(
+  title, authors, venue, key,
+  content='pubs', content_rowid='id',
+  tokenize='unicode61 remove_diacritics 2'
+);
+CREATE TABLE author_links (author TEXT NOT NULL, pub_id INTEGER NOT NULL);
+`
+
 // NewBuilder resets the index and returns a Builder ready for Add calls.
 func (s *Store) NewBuilder() (*Builder, error) {
 	for _, p := range []string{
@@ -134,10 +160,8 @@ func (s *Store) NewBuilder() (*Builder, error) {
 		"PRAGMA synchronous=OFF",
 		"PRAGMA temp_store=MEMORY",
 		"PRAGMA locking_mode=EXCLUSIVE",
-		"PRAGMA cache_size=-262144", // up to 256 MiB during the bulk build
-		"DELETE FROM pubs",
-		"DELETE FROM fts",
-		"DELETE FROM author_pubs",
+		"PRAGMA cache_size=-2097152", // up to 2 GiB during the bulk build
+		loadSchema,
 	} {
 		if _, err := s.db.Exec(p); err != nil {
 			return nil, err
@@ -170,11 +194,6 @@ func (b *Builder) Add(r dump.Record) error {
 func (b *Builder) AddPrepared(r PreparedRecord) error {
 	b.rowN++
 	if _, err := b.ins.Exec(b.rowN, r.Key, r.Type, r.Title, r.Authors, r.Venue, r.Year, r.Data); err != nil {
-		// Duplicate keys are skipped silently (dump occasionally repeats one).
-		if strings.Contains(err.Error(), "UNIQUE") {
-			b.rowN--
-			return nil
-		}
 		return err
 	}
 	for _, author := range r.RawAuthors {
@@ -191,7 +210,7 @@ func (b *Builder) flushAuthors() error {
 		return nil
 	}
 	var query strings.Builder
-	query.WriteString("INSERT OR IGNORE INTO author_pubs(author,pub_id) VALUES ")
+	query.WriteString("INSERT INTO author_links(author,pub_id) VALUES ")
 	args := make([]any, 0, len(b.auth)*2)
 	for i, link := range b.auth {
 		if i > 0 {
@@ -207,25 +226,69 @@ func (b *Builder) flushAuthors() error {
 	return nil
 }
 
-// Count returns how many records have been added so far.
+// Count returns how many records have been added so far; after Commit, how
+// many remain once duplicate keys are removed.
 func (b *Builder) Count() int64 { return b.rowN }
 
-// Commit finalises the relational data, builds FTS in one bulk pass, and then
-// optimises it. Rebuilding after import is considerably cheaper than updating
-// the FTS index once for every publication.
+// Commit builds the unique key index and the author table from the loaded
+// rows, builds FTS in one bulk pass, and then optimises it. Building each
+// index after the load is considerably cheaper than updating it once for
+// every publication.
 func (b *Builder) Commit() error {
 	if err := b.flushAuthors(); err != nil {
 		return err
 	}
 	b.ins.Close()
+	deduped, err := b.createKeyIndex()
+	if err != nil {
+		return err
+	}
+	links := `SELECT author, pub_id FROM author_links`
+	if deduped {
+		links += ` WHERE pub_id IN (SELECT id FROM pubs)`
+	}
+	for _, q := range []string{
+		`CREATE TABLE author_pubs (
+		  author TEXT NOT NULL,
+		  pub_id INTEGER NOT NULL,
+		  PRIMARY KEY (author, pub_id)
+		) WITHOUT ROWID`,
+		`INSERT OR IGNORE INTO author_pubs ` + links + ` ORDER BY author, pub_id`,
+		`DROP TABLE author_links`,
+	} {
+		if _, err := b.tx.Exec(q); err != nil {
+			return err
+		}
+	}
 	if err := b.tx.Commit(); err != nil {
 		return err
 	}
 	if _, err := b.s.db.Exec("INSERT INTO fts(fts) VALUES('rebuild')"); err != nil {
 		return err
 	}
-	_, err := b.s.db.Exec("INSERT INTO fts(fts) VALUES('optimize')")
+	_, err = b.s.db.Exec("INSERT INTO fts(fts) VALUES('optimize')")
 	return err
+}
+
+// createKeyIndex builds the unique index on key. The dump occasionally
+// repeats a key; the later copies are deleted first, keeping the first, and
+// deduped reports whether any was. The duplicates must be gone before the
+// index is created: with the journal off, a failed CREATE UNIQUE INDEX
+// cannot be rolled back and leaves the schema corrupt.
+func (b *Builder) createKeyIndex() (deduped bool, err error) {
+	res, err := b.tx.Exec(`DELETE FROM pubs WHERE id IN (
+		SELECT id FROM (SELECT id, row_number() OVER (PARTITION BY key ORDER BY id) AS n FROM pubs)
+		WHERE n > 1)`)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	b.rowN -= n
+	_, err = b.tx.Exec(`CREATE UNIQUE INDEX pubs_key ON pubs(key)`)
+	return n > 0, err
 }
 
 // SearchAuthor returns publications belonging to one exact DBLP author

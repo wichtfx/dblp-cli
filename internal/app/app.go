@@ -128,6 +128,7 @@ func Index(path string) error {
 		os.Remove(tmpPath)
 		return err
 	}
+	n = b.Count() // without duplicate keys
 	if err := st.Close(); err != nil {
 		os.Remove(tmpPath)
 		return err

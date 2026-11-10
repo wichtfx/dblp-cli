@@ -122,3 +122,43 @@ func TestBuildMatchMatchesShortTermsExactly(t *testing.T) {
 		}
 	}
 }
+
+func TestBuilderKeepsFirstOfDuplicateKeys(t *testing.T) {
+	st, err := Open(t.TempDir() + "/dblp.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	b, err := st.NewBuilder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range []dump.Record{
+		{Type: "article", Key: "journals/x/Dup", Title: "First Copy", Authors: []string{"Ada Author"}},
+		{Type: "article", Key: "journals/x/Other", Title: "Other Paper", Authors: []string{"Ada Author"}},
+		{Type: "article", Key: "journals/x/Dup", Title: "Second Copy", Authors: []string{"Ben Author"}},
+	} {
+		if err := b.Add(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if b.Count() != 2 {
+		t.Fatalf("Count = %d, want 2", b.Count())
+	}
+	r, ok, err := st.Get("journals/x/Dup")
+	if err != nil || !ok || r.Title != "First Copy" {
+		t.Fatalf("Get = %#v, %v, %v", r, ok, err)
+	}
+	if got, err := st.SearchAuthor("Ben Author", "", 10, 0); err != nil || len(got) != 0 {
+		t.Fatalf("author of the removed copy still linked: %#v, %v", got, err)
+	}
+	if got, err := st.SearchAuthor("Ada Author", "", 10, 0); err != nil || len(got) != 2 {
+		t.Fatalf("SearchAuthor(Ada Author) = %#v, %v", got, err)
+	}
+	if _, err := st.db.Exec(`INSERT INTO pubs(key) VALUES('journals/x/Dup')`); err == nil {
+		t.Fatal("pubs accepts a duplicate key after the build")
+	}
+}

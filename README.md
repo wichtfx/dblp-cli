@@ -154,7 +154,7 @@ The server implements MCP version 2025-06-18, with newline-delimited JSON-RPC on
 - **The dump is parsed as a stream.** The dump is several gigabytes; `encoding/xml` reads it token by token, and memory use does not grow with its size.
 - **The dblp DTD is not needed.** `dblp.xml` uses HTML named entities, such as `&uuml;`, and declares the ISO-8859-1 encoding. dblp-cli decodes both itself, with `xml.HTMLEntity` and a small Latin-1 reader, so the file `dblp.dtd` is never read.
 - **SQLite is written in Go.** `modernc.org/sqlite`, with FTS5, builds without cgo, and the result is a single portable binary.
-- **The full-text index is built in one pass.** The publications are imported first, and FTS5 then builds its index once, instead of updating it after each row.
-- **Authors are indexed in batches.** The mapping from authors to publications is inserted in batches during parsing, which saves several SQLite calls per publication without holding the dump in memory.
+- **Every index is built in one pass.** The publications and the links from authors to publications are loaded first, without indexes; the unique index on keys, the author table and the FTS5 index are then each built once, instead of updated after each row. A build takes up to 2 GB of memory for SQLite's cache.
+- **Authors are linked in batches.** The links from authors to publications are inserted in batches during parsing, which saves several SQLite calls per publication without holding the dump in memory.
 - **Records are prepared concurrently.** A bounded pool of workers encodes the JSON and cleans the metadata while the parser reads and the SQLite writer writes.
 - **The numbers dblp appends to shared names**, as in _Wei Wang 0001_, are removed from the output on the terminal and in BibTeX.
