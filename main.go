@@ -10,6 +10,7 @@
 //	dblp-cli search <query>        one-shot search, print numbered results
 //	dblp-cli bibtex <key>... [-c]  print/copy BibTeX for dblp keys
 //	dblp-cli doi <doi>... [-c]     print/copy BibTeX for DOIs
+//	dblp-cli check <file.bib>      compare a .bib file with dblp
 //	dblp-cli status                show dump freshness and check for updates
 package main
 
@@ -79,6 +80,13 @@ func main() {
 		dois, outFile, toClip := exportArgs(args, "usage: dblp-cli doi <doi>... [-c] [-o file.bib]")
 		fail(app.DOI(dois, outFile, toClip))
 
+	case "check":
+		if len(args) != 1 {
+			fmt.Fprintln(os.Stderr, "usage: dblp-cli check <file.bib>")
+			os.Exit(2)
+		}
+		fail(app.Check(args[0]))
+
 	case "status", "info":
 		fail(app.Status())
 
@@ -134,6 +142,7 @@ Commands:
   search <query>       search and print numbered results (-n N, -i)
   bibtex <key>...      print BibTeX (-c copy to clipboard, -o write to file)
   doi <doi>...         print BibTeX of the records with these DOIs (-c, -o)
+  check <file.bib>     compare each entry of a .bib file with dblp
   status               show dump date/freshness and check for updates
   mcp                  serve read-only LLM tools over MCP stdio
   (no command)         interactive search

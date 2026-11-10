@@ -35,6 +35,7 @@ dblp-cli                                         # interactive search, the defau
 | `dblp-cli search <query>`   | Search and print numbered results. `-n N` sets the number of results; `-i` opens interactive mode.                                                   |
 | `dblp-cli bibtex <key>...`  | Print BibTeX for one or more dblp keys. `-c` copies it to the clipboard; `-o file.bib` writes it to a file.                                          |
 | `dblp-cli doi <doi>...`     | Print BibTeX for the records with one or more DOIs, bare or as doi.org links. `-c` and `-o` work as for `bibtex`.                                    |
+| `dblp-cli check <file.bib>` | Compare each entry of a .bib file with dblp, and exit with status 1 when an entry differs or is not found.                                           |
 | `dblp-cli status`           | Print the dump date, its age and the number of records, and check dblp.org for a newer dump.                                                         |
 | `dblp-cli mcp`              | Start a read-only MCP server on standard input and output, for LLM clients.                                                                          |
 | `dblp-cli` (no arguments)   | Interactive search.                                                                                                                                  |
@@ -86,6 +87,19 @@ dblp-cli search 'title:(bert OR gpt) AND authors:devlin' # grouping, with an exp
 ```
 
 A clause that follows a parenthesised group must be joined to it with `AND`: FTS5 rejects an implicit AND after `(...)`.
+
+## Checking a .bib file
+
+`dblp-cli check refs.bib` looks up each entry of `refs.bib` in the index and prints one line for it:
+
+```
+ok         dijkstra68  journals/cacm/Dijkstra68a
+differs    vaswani17   conf/nips/VaswaniSPUJGKP17: author 2 "Ian Goodfellow", dblp "Noam Shazeer"
+not found  fake20      no dblp record has this title
+3 entries: 1 ok, 1 differ, 1 not found
+```
+
+An entry is looked up by its key when the key has the form `DBLP:<dblp key>`, otherwise by its DOI, and otherwise by its title. The title, the year and the surnames of the authors are then compared with the dblp record, ignoring case, TeX markup and diacritics; `and others` ends the list of authors compared. When several records have the title, the one that agrees best is chosen, and a published version is preferred to its CoRR preprint. The command exits with status 1 when an entry differs or is not found.
 
 ## The age of the dump
 
