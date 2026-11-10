@@ -52,7 +52,7 @@ func main() {
 			switch args[i] {
 			case "-n", "--n":
 				if i+1 < len(args) {
-					if v, err := strconv.Atoi(args[i+1]); err == nil {
+					if v, err := strconv.Atoi(args[i+1]); err == nil && v > 0 {
 						limit = v
 						i++
 					}
