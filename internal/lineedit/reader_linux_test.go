@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -37,12 +38,14 @@ func TestReadEscapeConsumesWholeSequence(t *testing.T) {
 	}
 }
 
-func TestReadTerminalKeepsUTF8(t *testing.T) {
+// openPTY returns the master and the slave side of a new pseudo-terminal.
+func openPTY(t *testing.T) (*os.File, *os.File) {
+	t.Helper()
 	master, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
 	if err != nil {
 		t.Skipf("no pseudo-terminal: %v", err)
 	}
-	defer master.Close()
+	t.Cleanup(func() { master.Close() })
 	if err := unix.IoctlSetPointerInt(int(master.Fd()), unix.TIOCSPTLCK, 0); err != nil {
 		t.Fatal(err)
 	}
@@ -54,8 +57,13 @@ func TestReadTerminalKeepsUTF8(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer slave.Close()
+	t.Cleanup(func() { slave.Close() })
 	go io.Copy(io.Discard, master)
+	return master, slave
+}
+
+func TestReadTerminalKeepsUTF8(t *testing.T) {
+	master, slave := openPTY(t)
 	if _, err := master.WriteString("schmidhüber\r"); err != nil {
 		t.Fatal(err)
 	}
@@ -65,5 +73,21 @@ func TestReadTerminalKeepsUTF8(t *testing.T) {
 	}
 	if line != "schmidhüber" {
 		t.Fatalf("ReadLine = %q, want %q", line, "schmidhüber")
+	}
+}
+
+func TestReadTerminalIgnoresLoneEscape(t *testing.T) {
+	master, slave := openPTY(t)
+	go func() {
+		master.WriteString("\x1b")
+		time.Sleep(4 * escapeWait)
+		master.WriteString("x\r")
+	}()
+	line, ok, err := New(slave, io.Discard).ReadLine("> ")
+	if err != nil || !ok {
+		t.Fatalf("ReadLine: ok=%v err=%v", ok, err)
+	}
+	if line != "x" {
+		t.Fatalf("ReadLine = %q, want %q", line, "x")
 	}
 }

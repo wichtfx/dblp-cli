@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 	"unicode/utf8"
 
 	"golang.org/x/sys/unix"
@@ -68,6 +69,11 @@ func (r *Reader) readTerminal(prompt string) (string, bool, error) {
 				}
 			}
 		case 27:
+			// Esc alone sends no further byte; waiting for one would swallow
+			// the next key the user types.
+			if !pending(fd, escapeWait) {
+				continue
+			}
 			key, err := readEscape(r.in)
 			if err != nil {
 				return "", false, err
@@ -98,7 +104,7 @@ func (r *Reader) readTerminal(prompt string) (string, bool, error) {
 			}
 		default:
 			if b[0] >= 32 && b[0] != 127 {
-				// string(b[:]) keeps the raw byte; string(b[0]) would turn each
+				// string(b[:])keeps the raw byte; string(b[0]) would turn each
 				// byte of a multi-byte UTF-8 character into a separate rune.
 				line += string(b[:])
 				if _, err := r.out.Write(b[:]); err != nil {
@@ -106,6 +112,21 @@ func (r *Reader) readTerminal(prompt string) (string, bool, error) {
 				}
 			}
 		}
+	}
+}
+
+// escapeWait is how long a key sequence may take to follow its Esc byte.
+const escapeWait = 50 * time.Millisecond
+
+// pending reports whether a byte can be read from fd within d.
+func pending(fd int, d time.Duration) bool {
+	fds := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+	for {
+		n, err := unix.Poll(fds, int(d.Milliseconds()))
+		if err == unix.EINTR {
+			continue
+		}
+		return err == nil && n > 0
 	}
 }
 
