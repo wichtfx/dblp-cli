@@ -94,7 +94,7 @@ dblp publishes a new dump about once a day. Every command prints the date and th
 Dump: 2026-06-22 (1 day(s) old) · 8.30M records
 ```
 
-`dblp-cli status` sends a `HEAD` request to dblp.org to check whether a newer dump exists. `dblp-cli update` downloads the dump only when the one on the server is newer than the local one. The download prints a progress bar; when dblp.org does not respond, it is taken from the official mirrors at Dagstuhl and Trier. Indexing prints a progress bar of the number of records.
+`dblp-cli status` sends a `HEAD` request to dblp.org to check whether a newer dump exists. `dblp-cli update` downloads the dump only when the one on the server is newer than the local one. The download prints a progress bar; when dblp.org does not respond, it is taken from the official mirrors at Dagstuhl and Trier. An interrupted download resumes where it stopped, unless the dump has changed since. Indexing prints a progress bar of the number of records.
 
 ## Where the data is kept
 

@@ -109,48 +109,72 @@ func Download(dst string) (time.Time, string, error) {
 	return time.Time{}, "", fmt.Errorf("all dblp download servers failed: %w", errors.Join(errs...))
 }
 
+// downloadFrom downloads source to dst through dst.part. An interrupted
+// download leaves the .part file, dated with the dump's Last-Modified time,
+// and the next attempt resumes it with a range request. If-Range makes the
+// server send the whole dump instead when it has changed since.
 func downloadFrom(source, dst string) (time.Time, error) {
+	tmp := dst + ".part"
 	req, err := http.NewRequest(http.MethodGet, source, nil)
 	if err != nil {
 		return time.Time{}, err
 	}
 	req.Header.Set("User-Agent", "dblp-cli/1")
+	var have int64
+	if info, err := os.Stat(tmp); err == nil && info.Size() > 0 {
+		have = info.Size()
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", have))
+		req.Header.Set("If-Range", info.ModTime().UTC().Format(http.TimeFormat))
+	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return time.Time{}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
+
+	var out *os.File
+	switch resp.StatusCode {
+	case http.StatusPartialContent:
+		fmt.Fprintf(os.Stderr, "  resuming at %.1f MiB\n", mib(have))
+		out, err = os.OpenFile(tmp, os.O_WRONLY|os.O_APPEND, 0o644)
+	case http.StatusOK:
+		have = 0
+		out, err = os.Create(tmp)
+	default:
+		if resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
+			os.Remove(tmp)
+		}
 		return time.Time{}, fmt.Errorf("server returned %s", resp.Status)
 	}
-
-	tmp := dst + ".part"
-	out, err := os.Create(tmp)
 	if err != nil {
 		return time.Time{}, err
 	}
-	keep := false
-	defer func() {
-		out.Close()
-		if !keep {
-			os.Remove(tmp)
-		}
-	}()
+	date, dateErr := time.Parse(http.TimeFormat, resp.Header.Get("Last-Modified"))
 
-	progress := &progressWriter{total: resp.ContentLength}
+	total := resp.ContentLength
+	if total > 0 {
+		total += have
+	}
+	progress := &progressWriter{total: total, written: have}
 	_, copyErr := io.Copy(out, io.TeeReader(resp.Body, progress))
 	progress.report(copyErr == nil)
 	fmt.Fprintln(os.Stderr)
-	if copyErr != nil {
-		return time.Time{}, copyErr
-	}
-	if err := out.Close(); err != nil {
-		return time.Time{}, err
+	closeErr := out.Close()
+	if copyErr != nil || closeErr != nil {
+		// Keep the part for the next attempt when its version is known.
+		if dateErr != nil || os.Chtimes(tmp, date, date) != nil {
+			os.Remove(tmp)
+		}
+		if copyErr != nil {
+			return time.Time{}, copyErr
+		}
+		return time.Time{}, closeErr
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		return time.Time{}, err
 	}
-	keep = true
-	date, _ := time.Parse(http.TimeFormat, resp.Header.Get("Last-Modified"))
+	if dateErr != nil {
+		date = time.Time{}
+	}
 	return date, nil
 }
