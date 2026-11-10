@@ -98,7 +98,9 @@ func (r *Reader) readTerminal(prompt string) (string, bool, error) {
 			}
 		default:
 			if b[0] >= 32 && b[0] != 127 {
-				line += string(b[0])
+				// string(b[:]) keeps the raw byte; string(b[0]) would turn each
+				// byte of a multi-byte UTF-8 character into a separate rune.
+				line += string(b[:])
 				if _, err := r.out.Write(b[:]); err != nil {
 					return "", false, err
 				}
