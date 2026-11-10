@@ -86,30 +86,31 @@ func printResults(res []store.Result, base int) {
 	for i, r := range res {
 		fmt.Fprintf(os.Stderr, "%s %s\n",
 			cyan(fmt.Sprintf("%3d.", base+i+1)), bold(r.Title))
-		meta := r.Authors
-		if r.Venue != "" {
-			meta += " — " + green(r.Venue)
-		}
-		if r.Year != "" {
-			meta += " " + yellow("("+r.Year+")")
-		}
-		fmt.Fprintf(os.Stderr, "     %s\n", truncateMeta(meta, r, 110))
+		fmt.Fprintf(os.Stderr, "     %s\n", metaLine(r, 110))
 		fmt.Fprintf(os.Stderr, "     %s · %s\n", magenta(r.Type), r.Key)
 	}
 }
 
-// truncateMeta truncates the authors/venue/year line to roughly n visible
-// runes. Color codes added above don't count toward the limit, so we measure
-// the plain text and only truncate when the authors list itself is long.
-func truncateMeta(colored string, r store.Result, n int) string {
-	plain := r.Authors
-	if len(r.Venue) > 0 {
-		plain += " — " + r.Venue
+// metaLine renders the authors, venue and year of a result. When the authors
+// and the venue exceed n runes, the author list is shortened so that the
+// venue and the year are still printed, in colour.
+func metaLine(r store.Result, n int) string {
+	authors := r.Authors
+	venueLen := 0
+	if r.Venue != "" {
+		venueLen = len([]rune(" — " + r.Venue))
 	}
-	if len([]rune(plain)) <= n {
-		return colored
+	if len([]rune(authors))+venueLen > n {
+		authors = truncate(authors, max(n-venueLen, 10))
 	}
-	return truncate(plain, n) // fall back to plain when over-long
+	line := authors
+	if r.Venue != "" {
+		line += " — " + green(r.Venue)
+	}
+	if r.Year != "" {
+		line += " " + yellow("("+r.Year+")")
+	}
+	return line
 }
 
 func truncate(s string, n int) string {
