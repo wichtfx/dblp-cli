@@ -105,14 +105,13 @@ func doiOf(r dump.Record) string {
 // escape protects the handful of characters that are special in BibTeX
 // values. dblp text is already UTF-8 and modern engines (biber) accept it,
 // so we keep escaping minimal and non-destructive.
-func escape(s string) string {
-	r := strings.NewReplacer(
-		"{", "\\{",
-		"}", "\\}",
-		"#", "\\#",
-		"%", "\\%",
-		"&", "\\&",
-		"$", "\\$",
-	)
-	return r.Replace(s)
-}
+func escape(s string) string { return escaper.Replace(s) }
+
+var escaper = strings.NewReplacer(
+	"{", "\\{",
+	"}", "\\}",
+	"#", "\\#",
+	"%", "\\%",
+	"&", "\\&",
+	"$", "\\$",
+)

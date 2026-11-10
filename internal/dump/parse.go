@@ -79,7 +79,8 @@ func charsetReader(label string, input io.Reader) (io.Reader, error) {
 type latin1Reader struct {
 	r   io.Reader
 	buf [4096]byte
-	pnd []byte // pending UTF-8 bytes not yet delivered
+	out [8192]byte // each Latin-1 byte becomes at most two UTF-8 bytes
+	pnd []byte     // pending UTF-8 bytes not yet delivered
 }
 
 func (l *latin1Reader) Read(p []byte) (int, error) {
@@ -88,7 +89,7 @@ func (l *latin1Reader) Read(p []byte) (int, error) {
 		if n == 0 {
 			return 0, err
 		}
-		out := make([]byte, 0, n+8)
+		out := l.out[:0]
 		for _, b := range l.buf[:n] {
 			if b < 0x80 {
 				out = append(out, b)
