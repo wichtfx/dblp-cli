@@ -51,6 +51,9 @@ func Update(force bool) error {
 			if remote.Equal(m.DumpDate) && fileExists(dst) {
 				fmt.Fprintf(os.Stderr, "Already up to date (dump %s). Use --force to re-download.\n",
 					remote.Format("2006-01-02"))
+				if dbPath, err := paths.DB(); err == nil && fileExists(dbPath) && m.IndexedAt.After(m.DownloadedAt) {
+					return nil
+				}
 				return Index("")
 			}
 			fmt.Fprintf(os.Stderr, "New dump available: %s (local: %s)\n",
@@ -76,12 +79,14 @@ func Update(force bool) error {
 // Index builds the search index from the dump. An empty path uses the
 // downloaded dump in the data directory.
 func Index(path string) error {
-	if path == "" {
-		var err error
-		if path, err = paths.Dump(); err != nil {
-			return err
-		}
+	downloaded, err := paths.Dump()
+	if err != nil {
+		return err
 	}
+	if path == "" {
+		path = downloaded
+	}
+	fromDownload := sameFile(path, downloaded)
 	if !fileExists(path) {
 		return fmt.Errorf("dump not found at %s — run `dblp-cli update` first", path)
 	}
@@ -136,7 +141,23 @@ func Index(path string) error {
 
 	indexMeta.IndexedAt = time.Now()
 	indexMeta.Records = n
+	if !fromDownload {
+		// The index no longer reflects the downloaded dump, so its date and
+		// source no longer describe the data being searched.
+		indexMeta.SourceURL = ""
+		indexMeta.DumpDate = time.Time{}
+	}
 	return indexMeta.Save()
+}
+
+// sameFile reports whether a and b name the same existing file.
+func sameFile(a, b string) bool {
+	ia, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	ib, err := os.Stat(b)
+	return err == nil && os.SameFile(ia, ib)
 }
 
 type preparedResult struct {
