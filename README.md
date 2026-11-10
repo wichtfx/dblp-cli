@@ -55,7 +55,7 @@ dblp> au 1 2020    # ...restricted to a year (use `y` for this paper's year)
 dblp> ve           # re-search by its venue (NIPS); `ve y` adds the year
 dblp> b 1 3        # print BibTeX for results 1 and 3
 dblp> c 1          # copy result 1 to the clipboard
-dblp> w refs.bib all   # write the whole page to a file
+dblp> w refs.bib all   # append the whole page to a file
 dblp> o 1          # show the dblp page link
 dblp> n / p        # next / previous page
 dblp> q            # quit

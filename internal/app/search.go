@@ -80,6 +80,30 @@ func emit(text, outFile string, toClip bool, n int) error {
 	return nil
 }
 
+// appendBibtex appends rendered bibtex to file, creating it if needed and
+// separating the new entries from existing ones by a blank line.
+func appendBibtex(text, file string, n int) error {
+	f, err := os.OpenFile(file, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	info, err := f.Stat()
+	if err == nil && info.Size() > 0 {
+		text = "\n" + text
+	}
+	if err == nil {
+		_, err = f.WriteString(text)
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "Appended %d entry(ies) to %s\n", n, file)
+	return nil
+}
+
 // printResults renders a numbered list to stderr (so it can coexist with
 // piped stdout). base is added to the displayed index for paging.
 func printResults(res []store.Result, base int) {

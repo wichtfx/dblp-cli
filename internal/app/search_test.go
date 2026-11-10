@@ -1,6 +1,8 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,5 +21,22 @@ func TestMetaLineKeepsVenueAndYearForLongAuthorLists(t *testing.T) {
 	}
 	if !strings.Contains(line, "…") {
 		t.Fatalf("metaLine did not shorten the authors: %q", line)
+	}
+}
+
+func TestAppendBibtexKeepsEarlierEntries(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "refs.bib")
+	if err := appendBibtex("@article{DBLP:a,\n}\n", file, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := appendBibtex("@article{DBLP:b,\n}\n", file, 1); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "@article{DBLP:a,\n}\n\n@article{DBLP:b,\n}\n"; string(got) != want {
+		t.Fatalf("file = %q, want %q", got, want)
 	}
 }

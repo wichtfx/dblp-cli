@@ -248,14 +248,22 @@ func resolveYear(fields []string, i int, selYear string) string {
 	return fields[i]
 }
 
-// doExport resolves the selected result numbers and renders their bibtex.
+// doExport resolves the selected result numbers and renders their bibtex. A
+// file is appended to, so that repeated `w` commands collect entries in it.
 func doExport(st *store.Store, current []store.Result, sel, file string, toClip bool, offset int) {
 	recs := selectRecords(st, current, sel, offset)
 	if len(recs) == 0 {
 		fmt.Fprintln(os.Stderr, "Nothing selected. Example: b 1 3 5  (or `b all`)")
 		return
 	}
-	if err := emit(bibtex.RenderMany(recs), file, toClip, len(recs)); err != nil {
+	text := bibtex.RenderMany(recs)
+	var err error
+	if file != "" {
+		err = appendBibtex(text, file, len(recs))
+	} else {
+		err = emit(text, "", toClip, len(recs))
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, red("error:"), err)
 	}
 }
@@ -347,7 +355,7 @@ Interactive search. Commands:
   ← / →             previous / next publication page
   b <nums|all>      print BibTeX for results        (e.g. b 1 3 5)
   c <nums|all>      copy results to the clipboard
-  w <file> <nums>   write results to a file
+  w <file> <nums>   append results to a file
   o <nums>          show dblp page links
   h / q             help / quit`)
 	fmt.Fprintln(os.Stderr, h)
