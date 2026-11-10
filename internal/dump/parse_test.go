@@ -80,3 +80,61 @@ func TestIsHomepage(t *testing.T) {
 		t.Fatal("ordinary www record was recognized as an author homepage")
 	}
 }
+
+func parseString(t *testing.T, xml string) []Record {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "dblp.xml")
+	if err := os.WriteFile(path, []byte(xml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var recs []Record
+	if err := Parse(path, func(r Record) error { recs = append(recs, r); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	return recs
+}
+
+func TestParseKeepsTextOfInlineMarkup(t *testing.T) {
+	recs := parseString(t, `<?xml version="1.0" encoding="ISO-8859-1"?>
+<dblp>
+<incollection mdate="2017-07-12" key="reference/crypt/Kaliski11w"><author orcid="0000-0001">Burt Kaliski</author><title><i>O</i>-Notation.</title><year>2011</year></incollection>
+<article key="journals/x/A"><title>Time 2<sup>&Otilde;(n<sup>1/3</sup>)</sup>.</title><note type="x"/><ee type="oa">https://doi.org/10.1/a</ee></article>
+</dblp>`)
+	if len(recs) != 2 {
+		t.Fatalf("got %d records, want 2", len(recs))
+	}
+	if recs[0].Title != "O-Notation." || recs[0].Authors[0] != "Burt Kaliski" || recs[0].MDate != "2017-07-12" {
+		t.Errorf("first record = %#v", recs[0])
+	}
+	if recs[1].Title != "Time 2Õ(n1/3)." || recs[1].EE[0] != "https://doi.org/10.1/a" {
+		t.Errorf("second record = %#v", recs[1])
+	}
+}
+
+func TestParseEncodings(t *testing.T) {
+	latin := parseString(t, "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n<dblp><article key=\"a\"><title>M\xfcller &amp; &#252;&#xFC; &unknown;</title></article></dblp>")
+	if got := latin[0].Title; got != "Müller & üü &unknown;" {
+		t.Errorf("Latin-1 title = %q", got)
+	}
+	utf := parseString(t, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<dblp><article key=\"a\"><title>Müller</title></article></dblp>")
+	if got := utf[0].Title; got != "Müller" {
+		t.Errorf("UTF-8 title = %q", got)
+	}
+}
+
+func TestParseSkipsMalformedRecord(t *testing.T) {
+	recs := parseString(t, `<dblp><article key="bad"><title>Unclosed</article><article key="good"><title>Fine</title></article></dblp>`)
+	if len(recs) != 1 || recs[0].Key != "good" {
+		t.Fatalf("records = %#v", recs)
+	}
+}
+
+func TestParseRejectsTruncatedDump(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dblp.xml")
+	if err := os.WriteFile(path, []byte(`<dblp><article key="a"><title>Cut`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Parse(path, func(Record) error { return nil }); err == nil {
+		t.Fatal("a truncated dump parsed without error")
+	}
+}
