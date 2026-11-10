@@ -15,12 +15,12 @@ import (
 const pageSize = 15
 
 // activeQuery is whatever the current result page is showing: either a
-// free-text search or a facet drill-down (an FTS expression plus optional
-// year). Keeping it lets n/p page through facet results too.
+// free-text search or a facet drill-down (an author or a venue, plus an
+// optional year). Keeping it lets n/p page through facet results too.
 type activeQuery struct {
 	text   string // free-text query (uses Store.Search)
-	match  string // prebuilt FTS expression (uses Store.SearchQuery)
 	author string // exact raw DBLP author identity (uses Store.SearchAuthor)
+	venue  string // exact venue (uses Store.SearchVenue)
 	year   string // optional year filter for facet queries
 	label  string // human description shown to the user
 }
@@ -29,10 +29,10 @@ func (q activeQuery) run(st *store.Store, offset int) ([]store.Result, error) {
 	switch {
 	case q.text != "":
 		return st.Search(q.text, pageSize, offset)
-	case q.match != "":
-		return st.SearchQuery(q.match, q.year, pageSize, offset)
 	case q.author != "":
 		return st.SearchAuthor(q.author, q.year, pageSize, offset)
+	case q.venue != "":
+		return st.SearchVenue(q.venue, q.year, pageSize, offset)
 	}
 	return nil, nil
 }
@@ -233,7 +233,7 @@ func facetVenue(sel *dump.Record, rest string) (activeQuery, bool) {
 	if year != "" {
 		label += " · " + year
 	}
-	return activeQuery{match: store.ColumnPhrase("venue", venue), year: year, label: label}, true
+	return activeQuery{venue: venue, year: year, label: label}, true
 }
 
 // resolveYear reads the year token at fields[i]: empty -> no filter, "y" ->

@@ -77,3 +77,33 @@ func TestBuilderFlushesAuthorBatches(t *testing.T) {
 		t.Fatalf("SearchAuthor returned %#v", got)
 	}
 }
+
+func TestSearchVenueIsExact(t *testing.T) {
+	st, err := Open(t.TempDir() + "/dblp.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	b, err := st.NewBuilder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range []dump.Record{
+		{Type: "inproceedings", Key: "conf/ccs/Main24", Title: "Main Track", Booktitle: "CCS", Year: "2024"},
+		{Type: "inproceedings", Key: "conf/ccs/Workshop24", Title: "Workshop Paper", Booktitle: "CCS Workshops", Year: "2024"},
+	} {
+		if err := b.Add(record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.SearchVenue("CCS", "", 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Key != "conf/ccs/Main24" {
+		t.Fatalf("SearchVenue returned %#v", got)
+	}
+}

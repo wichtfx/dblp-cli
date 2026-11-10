@@ -235,7 +235,7 @@ func callTool(st *store.Store, raw json.RawMessage) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		results, err := st.SearchQuery(store.ColumnPhrase("venue", venue), year, limit+1, offset)
+		results, err := st.SearchVenue(venue, year, limit+1, offset)
 		if err != nil {
 			return nil, err
 		}

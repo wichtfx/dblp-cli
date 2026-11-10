@@ -258,6 +258,28 @@ func (s *Store) SearchAuthor(rawAuthor, year string, limit, offset int) ([]Resul
 	return scanResults(rows)
 }
 
+// SearchVenue returns publications whose venue is exactly venue, newest
+// first. The FTS phrase narrows the candidates; the equality test removes
+// venues that only contain the phrase, such as workshops of a conference.
+func (s *Store) SearchVenue(venue, year string, limit, offset int) ([]Result, error) {
+	q := `SELECT p.key, p.type, p.title, p.authors, p.venue, p.year
+		FROM fts JOIN pubs p ON p.id = fts.rowid
+		WHERE fts MATCH ? AND p.venue = ?`
+	args := []any{ColumnPhrase("venue", venue), venue}
+	if year != "" {
+		q += " AND p.year = ?"
+		args = append(args, year)
+	}
+	q += " ORDER BY p.year DESC, p.title LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanResults(rows)
+}
+
 // Search runs a free-text query and returns up to limit results ranked by
 // BM25, with title matches weighted highest.
 func (s *Store) Search(query string, limit, offset int) ([]Result, error) {
