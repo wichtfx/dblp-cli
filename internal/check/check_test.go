@@ -16,6 +16,7 @@ func TestNormalize(t *testing.T) {
 		`Ko{\c{c}}, {\'{\i}}{\ss}`:              "koc iss",
 		`\emph{Zero}-Knowledge Proofs`:          "zero knowledge proofs",
 		`Paweł Łukasz`:                          "pawel lukasz",
+		`t {\textless} n/3 \t{oo} \u{a}`:        "t n 3 oo a",
 	}
 	for in, want := range tests {
 		if got := Normalize(in); got != want {
@@ -42,6 +43,10 @@ func testStore(t *testing.T) *store.Store {
 			Authors: []string{"Ashish Vaswani", "Noam Shazeer", "Niki Parmar"}, Year: "2017"},
 		{Type: "article", Key: "journals/corr/VaswaniSPUJGKP17", Title: "Attention Is All You Need.",
 			Authors: []string{"Ashish Vaswani", "Noam Shazeer", "Niki Parmar"}, Year: "2017"},
+		{Type: "inproceedings", Key: "conf/podc/MostefaouiMR14",
+			Title: "Signature-free asynchronous byzantine consensus with t 2<n/3 and o(n2) messages.", Year: "2014"},
+		{Type: "inproceedings", Key: "conf/asiacrypt/DamgardDFN07", Title: "Names.",
+			Authors: []string{"Ivan Damgård", "Daniel Barbará", "OpenAI", "Wil M. P. van der Aalst"}},
 		{Type: "article", Key: "journals/x/Schmidhuber15", Title: "Deep Learning in Neural Networks: An Overview.",
 			Authors: []string{"Jürgen Schmidhuber"}, Year: "2015"},
 	} {
@@ -90,6 +95,12 @@ func TestEntry(t *testing.T) {
 		{"other version by title", bibtex.Entry{Key: "dijkstra2", Fields: map[string]string{
 			"title": "Go To Statement Considered Harmful", "doi": "10.9999/reprint"}},
 			Differs, "journals/cacm/Dijkstra68a"},
+		{"superscript in title", bibtex.Entry{Key: "DBLP:conf/podc/MostefaouiMR14", Fields: map[string]string{
+			"title": `Signature-free asynchronous byzantine consensus with t 2{\textless}n/3 and o(n\({}^{\mbox{2}}\)) messages`}},
+			OK, "conf/podc/MostefaouiMR14"},
+		{"tex letters and accents in names", bibtex.Entry{Key: "DBLP:conf/asiacrypt/DamgardDFN07", Fields: map[string]string{
+			"author": `Ivan Damg{\aa}rd and Daniel Barbar{\'{a}} and {OpenAI} and Wil {van der Aalst}`}},
+			OK, "conf/asiacrypt/DamgardDFN07"},
 		{"wrong author", bibtex.Entry{Key: "vaswani2", Fields: map[string]string{
 			"title": "Attention is all you need", "author": "Ashish Vaswani and Ian Goodfellow and Niki Parmar"}},
 			Differs, "conf/nips/VaswaniSPUJGKP17"},

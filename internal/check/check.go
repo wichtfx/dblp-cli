@@ -101,7 +101,7 @@ func lookup(st *store.Store, e bibtex.Entry) ([]dump.Record, string, error) {
 	}
 	var recs []dump.Record
 	for _, r := range results {
-		if r.Type == "www" || Normalize(r.Title) != title {
+		if r.Type == "www" || !sameTitle(r.Title, e.Fields["title"]) {
 			continue
 		}
 		rec, found, err := st.Get(r.Key)
@@ -127,7 +127,7 @@ func compare(e bibtex.Entry, r dump.Record) []string {
 			diffs = append(diffs, fmt.Sprintf("doi %s, dblp %s", doi, strings.Join(dois, ", ")))
 		}
 	}
-	if t := e.Fields["title"]; t != "" && Normalize(t) != Normalize(r.Title) {
+	if t := e.Fields["title"]; t != "" && !sameTitle(t, r.Title) {
 		diffs = append(diffs, fmt.Sprintf("title %q, dblp %q", strings.TrimSpace(t), r.Title))
 	}
 	if y := strings.TrimSpace(e.Fields["year"]); y != "" && r.Year != "" && y != r.Year {
@@ -159,6 +159,13 @@ func compareAuthors(field string, dblp []string) string {
 		}
 	}
 	return ""
+}
+
+// sameTitle compares normalised titles without their spaces: markup such as
+// a superscript splits words differently in a .bib file and in dblp, as in
+// "n\({}^{\mbox{2}}\)" and "n2".
+func sameTitle(a, b string) bool {
+	return strings.ReplaceAll(Normalize(a), " ", "") == strings.ReplaceAll(Normalize(b), " ", "")
 }
 
 // entryDOI returns the entry's DOI without the TeX escapes and braces a
@@ -195,12 +202,33 @@ func bibSurname(name string) string {
 	if last, _, ok := strings.Cut(name, ","); ok {
 		return Normalize(last)
 	}
-	if strings.HasSuffix(name, "}") {
-		if i := strings.LastIndex(name, "{"); i >= 0 {
-			return Normalize(name[i:])
-		}
+	// A final braced group that starts a word is one surname, as in
+	// "{OpenAI}" or "Wil {van der Aalst}"; braces inside a word, as in
+	// "Barbar{\'{a}}", only protect an accent.
+	if i := finalGroup(name); i == 0 || (i > 0 && name[i-1] == ' ') {
+		return Normalize(name[i:])
 	}
 	return lastWord(Normalize(name))
+}
+
+// finalGroup returns where the brace group that ends name opens, or -1.
+func finalGroup(name string) int {
+	if !strings.HasSuffix(name, "}") {
+		return -1
+	}
+	depth := 0
+	for i := len(name) - 1; i >= 0; i-- {
+		switch name[i] {
+		case '}':
+			depth++
+		case '{':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 // dblpSurname returns the normalised surname of a dblp name.
@@ -220,8 +248,14 @@ func lastWord(s string) string {
 }
 
 var (
-	texAccent  = regexp.MustCompile(`\\[` + "`" + `'^"~=.uvHckrdbt]\s*\{?\s*\\?([A-Za-z])\}?`)
-	texLetter  = regexp.MustCompile(`\\(ss|ae|AE|oe|OE|aa|AA|o|O|l|L|i|j)\b`)
+	// An accent is a symbol, or a letter not followed by more letters:
+	// \t{o} is an accent, \textless is a command.
+	texAccent = regexp.MustCompile(`\\(?:[` + "`" + `'^"~=.]|[uvHckrdbt](?:\s+|\{))\s*\{?\s*\\?([A-Za-z])\}?`)
+	texLetter = regexp.MustCompile(`\\(ss|ae|AE|oe|OE|aa|AA|o|O|l|L|i|j)\b`)
+	// texLetters maps a TeX letter command to its letter, which fold then
+	// reduces as it reduces the same letter written in Unicode.
+	texLetters = map[string]string{"ss": "ß", "ae": "æ", "AE": "Æ", "oe": "œ", "OE": "Œ", "aa": "å",
+		"AA": "Å", "o": "ø", "O": "Ø", "l": "ł", "L": "Ł", "i": "i", "j": "j"}
 	texCommand = regexp.MustCompile(`\\[A-Za-z]+\*?`)
 )
 
@@ -230,7 +264,7 @@ var (
 // other character separates words.
 func Normalize(s string) string {
 	s = texAccent.ReplaceAllString(s, "$1")
-	s = texLetter.ReplaceAllString(s, "$1")
+	s = texLetter.ReplaceAllStringFunc(s, func(m string) string { return texLetters[m[1:]] })
 	s = texCommand.ReplaceAllString(s, " ")
 	var b strings.Builder
 	for _, r := range s {
