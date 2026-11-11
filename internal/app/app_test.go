@@ -12,6 +12,7 @@ import (
 
 	"github.com/wichtfx/dblp-cli/internal/dump"
 	"github.com/wichtfx/dblp-cli/internal/meta"
+	"github.com/wichtfx/dblp-cli/internal/paths"
 )
 
 func TestIndexOfAnotherDumpClearsDumpDate(t *testing.T) {
@@ -90,5 +91,23 @@ func TestUpdateKeepsOldDumpDateWhenIndexingFails(t *testing.T) {
 	}
 	if !m.DumpDate.Equal(newer) || m.SourceURL != dump.Sources[0] || m.Records != 1 {
 		t.Fatalf("meta after successful update: %#v", m)
+	}
+}
+
+func TestMetaOmitsUnsetDownloadDate(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	if err := (meta.Meta{Records: 1}).Save(); err != nil {
+		t.Fatal(err)
+	}
+	p, err := paths.Meta()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(b, []byte("downloaded_dump_date")) {
+		t.Fatalf("meta.json has an unset download date: %s", b)
 	}
 }

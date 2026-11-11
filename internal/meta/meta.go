@@ -23,10 +23,10 @@ type Meta struct {
 	SourceURL          string    `json:"source_url"`
 	DumpDate           time.Time `json:"dump_date"` // server Last-Modified of the indexed dump
 	DownloadedFrom     string    `json:"downloaded_from,omitempty"`
-	DownloadedDumpDate time.Time `json:"downloaded_dump_date,omitempty"` // server Last-Modified of the downloaded dump
-	DownloadedAt       time.Time `json:"downloaded_at"`                  // when we fetched it
-	IndexedAt          time.Time `json:"indexed_at"`                     // when we last (re)built the index
-	Records            int64     `json:"records"`                        // number of indexed records
+	DownloadedDumpDate time.Time `json:"downloaded_dump_date,omitzero"` // server Last-Modified of the downloaded dump
+	DownloadedAt       time.Time `json:"downloaded_at"`                 // when we fetched it
+	IndexedAt          time.Time `json:"indexed_at"`                    // when we last (re)built the index
+	Records            int64     `json:"records"`                       // number of indexed records
 }
 
 // Load reads the metadata file. A missing file yields a zero-value Meta and
