@@ -75,13 +75,21 @@ func (r Record) Venue() string {
 	return r.Booktitle
 }
 
-// Link returns the best external URL: a DOI/publisher link if present,
-// otherwise the dblp page URL.
+// Link returns the best external URL: a DOI/publisher link if present, then
+// an absolute url of the record, and otherwise the record's dblp page. The
+// url of a publication in the dump is relative to dblp.org ("db/conf/..."),
+// so it is not used as given.
 func (r Record) Link() string {
 	if len(r.EE) > 0 {
 		return r.EE[0]
 	}
-	return r.URL
+	if strings.HasPrefix(r.URL, "https://") || strings.HasPrefix(r.URL, "http://") {
+		return r.URL
+	}
+	if r.Key == "" {
+		return ""
+	}
+	return "https://dblp.org/rec/" + r.Key + ".html"
 }
 
 // IsHomepage reports whether the record represents a DBLP author homepage.
