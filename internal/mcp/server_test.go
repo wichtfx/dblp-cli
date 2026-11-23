@@ -104,7 +104,7 @@ func call(t *testing.T, st *store.Store, name string, args map[string]any) strin
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := callTool(st, params)
+	result, err := callTool(context.Background(), st, params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func call(t *testing.T, st *store.Store, name string, args map[string]any) strin
 
 func TestUnknownToolIsProtocolError(t *testing.T) {
 	st := testStore(t)
-	resp := dispatch(st, request{JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "tools/call",
+	resp := dispatch(context.Background(), st, request{JSONRPC: "2.0", ID: json.RawMessage("1"), Method: "tools/call",
 		Params: json.RawMessage(`{"name":"no_such_tool","arguments":{}}`)})
 	if resp.Error == nil || resp.Error.Code != -32602 || resp.Result != nil {
 		t.Fatalf("response = %#v", resp)
@@ -131,7 +131,7 @@ func TestGetPublicationByDOI(t *testing.T) {
 		t.Errorf("DOI lookup response: %s", got)
 	}
 	params, _ := json.Marshal(map[string]any{"name": "get_publication_by_doi", "arguments": map[string]any{"doi": "10.1/none"}})
-	if _, err := callTool(st, params); err == nil {
+	if _, err := callTool(context.Background(), st, params); err == nil {
 		t.Error("unknown DOI returned no error")
 	}
 }

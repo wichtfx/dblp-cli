@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/wichtfx/dblp-cli/internal/bibtex"
 	"github.com/wichtfx/dblp-cli/internal/dump"
+	"github.com/wichtfx/dblp-cli/internal/lineedit"
 	"github.com/wichtfx/dblp-cli/internal/store"
 )
 
@@ -110,7 +112,7 @@ func testStore(t *testing.T) (*store.Store, []store.Result) {
 	if err := b.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	res, err := st.Search("record", pageSize, 0)
+	res, err := st.Search(context.Background(), "record", pageSize, 0)
 	if err != nil || len(res) != 2 {
 		t.Fatalf("Search = %v, %v; want 2 results", res, err)
 	}
@@ -124,14 +126,14 @@ func TestOpenUsesSelectionOrNumbers(t *testing.T) {
 	openURL = func(url string) error { opened = append(opened, url); return nil }
 	t.Cleanup(func() { openURL = saved })
 
-	sel, _, _ := st.Get("journals/test/One")
-	doOpen(st, res, "", &sel, 0)
-	doOpen(st, res, "all", nil, 0)
-	doOpen(st, res, "", nil, 0)
+	sel, _, _ := st.Get(context.Background(), "journals/test/One")
+	doOpen(context.Background(), st, res, "", &sel, 0)
+	doOpen(context.Background(), st, res, "all", nil, 0)
+	doOpen(context.Background(), st, res, "", nil, 0)
 
 	want := []string{"https://doi.org/10.1/one"}
 	for _, r := range res {
-		rec, _, _ := st.Get(r.Key)
+		rec, _, _ := st.Get(context.Background(), r.Key)
 		want = append(want, rec.Link())
 	}
 	if strings.Join(opened, " ") != strings.Join(want, " ") {
@@ -145,20 +147,20 @@ func TestOpenUsesSelectionOrNumbers(t *testing.T) {
 func TestWriteAppendsSelectionToLastFile(t *testing.T) {
 	st, res := testStore(t)
 	file := filepath.Join(t.TempDir(), "refs.bib")
-	one, _, _ := st.Get("journals/test/One")
-	two, _, _ := st.Get("journals/test/Two")
+	one, _, _ := st.Get(context.Background(), "journals/test/One")
+	two, _, _ := st.Get(context.Background(), "journals/test/Two")
 
-	if _, ok := doWrite(st, res, "", "", &one, 0); ok {
+	if _, ok := doWrite(context.Background(), st, res, "", "", &one, 0); ok {
 		t.Fatal("w without a file and without a previous file succeeded")
 	}
-	got, ok := doWrite(st, res, file, "", &one, 0)
+	got, ok := doWrite(context.Background(), st, res, file, "", &one, 0)
 	if !ok || got != file {
 		t.Fatalf("w %s = %q, %v", file, got, ok)
 	}
-	if got, ok = doWrite(st, res, "", file, &two, 0); !ok || got != file {
+	if got, ok = doWrite(context.Background(), st, res, "", file, &two, 0); !ok || got != file {
 		t.Fatalf("w = %q, %v; want the previous file", got, ok)
 	}
-	if _, ok = doWrite(st, res, "", file, nil, 0); ok {
+	if _, ok = doWrite(context.Background(), st, res, "", file, nil, 0); ok {
 		t.Fatal("w without a selection and without numbers succeeded")
 	}
 	data, err := os.ReadFile(file)
@@ -167,5 +169,49 @@ func TestWriteAppendsSelectionToLastFile(t *testing.T) {
 	}
 	if want := bibtex.Render(one) + "\n" + bibtex.Render(two); string(data) != want {
 		t.Fatalf("file = %q, want %q", data, want)
+	}
+}
+
+// scriptedReader returns its lines in order, a nil entry as a Ctrl-C, and
+// then the end of input.
+type scriptedReader struct {
+	lines []*string
+	reads int
+}
+
+func (r *scriptedReader) ReadLine(string) (string, bool, error) {
+	if r.reads == len(r.lines) {
+		return "", false, nil
+	}
+	l := r.lines[r.reads]
+	r.reads++
+	if l == nil {
+		return "", true, lineedit.ErrInterrupt
+	}
+	return *l, true, nil
+}
+
+func script(lines ...any) *scriptedReader {
+	r := &scriptedReader{}
+	for _, l := range lines {
+		if s, ok := l.(string); ok {
+			r.lines = append(r.lines, &s)
+		} else {
+			r.lines = append(r.lines, nil)
+		}
+	}
+	return r
+}
+
+func TestSecondCtrlCInARowQuits(t *testing.T) {
+	st, _ := testStore(t)
+	ctrlC := struct{}{}
+	in := script(ctrlC, ctrlC, "h")
+	if err := repl(st, in); err != nil || in.reads != 2 {
+		t.Fatalf("repl = %v after %d reads, want quit after 2", err, in.reads)
+	}
+	in = script(ctrlC, "h", ctrlC, "h")
+	if err := repl(st, in); err != nil || in.reads != 4 {
+		t.Fatalf("repl = %v after %d reads, want all 4", err, in.reads)
 	}
 }

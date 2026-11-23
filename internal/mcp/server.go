@@ -143,7 +143,7 @@ func Serve(ctx context.Context, st *store.Store, in io.Reader, out io.Writer) er
 		if len(req.ID) == 0 {
 			continue
 		}
-		resp := dispatch(st, req)
+		resp := dispatch(ctx, st, req)
 		if err := enc.Encode(resp); err != nil {
 			return err
 		}
@@ -151,7 +151,7 @@ func Serve(ctx context.Context, st *store.Store, in io.Reader, out io.Writer) er
 	return scanner.Err()
 }
 
-func dispatch(st *store.Store, req request) response {
+func dispatch(ctx context.Context, st *store.Store, req request) response {
 	r := response{JSONRPC: "2.0", ID: req.ID}
 	switch req.Method {
 	case "initialize":
@@ -165,7 +165,7 @@ func dispatch(st *store.Store, req request) response {
 	case "tools/list":
 		r.Result = map[string]any{"tools": toolList}
 	case "tools/call":
-		result, err := callTool(st, req.Params)
+		result, err := callTool(ctx, st, req.Params)
 		var unknown unknownToolError
 		if errors.As(err, &unknown) {
 			// The specification treats an unknown tool as a protocol error.
@@ -181,7 +181,7 @@ func dispatch(st *store.Store, req request) response {
 	return r
 }
 
-func callTool(st *store.Store, raw json.RawMessage) (any, error) {
+func callTool(ctx context.Context, st *store.Store, raw json.RawMessage) (any, error) {
 	var p struct {
 		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
@@ -204,7 +204,7 @@ func callTool(st *store.Store, raw json.RawMessage) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		results, err := st.Search(q, limit+1, offset)
+		results, err := st.Search(ctx, q, limit+1, offset)
 		if err != nil {
 			return nil, err
 		}
@@ -226,7 +226,7 @@ func callTool(st *store.Store, raw json.RawMessage) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		results, err := st.SearchAuthor(author, year, limit+1, offset)
+		results, err := st.SearchAuthor(ctx, author, year, limit+1, offset)
 		if err != nil {
 			return nil, err
 		}
@@ -248,7 +248,7 @@ func callTool(st *store.Store, raw json.RawMessage) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		results, err := st.SearchVenue(venue, year, limit+1, offset)
+		results, err := st.SearchVenue(ctx, venue, year, limit+1, offset)
 		if err != nil {
 			return nil, err
 		}
@@ -258,7 +258,7 @@ func callTool(st *store.Store, raw json.RawMessage) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		record, ok, err := st.Get(key)
+		record, ok, err := st.Get(ctx, key)
 		if err != nil {
 			return nil, err
 		}
@@ -271,7 +271,7 @@ func callTool(st *store.Store, raw json.RawMessage) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		records, err := st.ByDOI(doi)
+		records, err := st.ByDOI(ctx, doi)
 		if err != nil {
 			return nil, err
 		}
@@ -286,7 +286,7 @@ func callTool(st *store.Store, raw json.RawMessage) (any, error) {
 		}
 		var rendered []string
 		for _, key := range keys {
-			record, ok, err := st.Get(key)
+			record, ok, err := st.Get(ctx, key)
 			if err != nil {
 				return nil, err
 			}

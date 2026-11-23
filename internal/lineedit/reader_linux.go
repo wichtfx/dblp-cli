@@ -24,7 +24,8 @@ func (r *Reader) readTerminal(prompt string) (string, bool, error) {
 		return "", false, err
 	}
 	raw := *original
-	raw.Lflag &^= unix.ICANON | unix.ECHO
+	// ISIG is cleared so that Ctrl-C arrives as a key, not as SIGINT.
+	raw.Lflag &^= unix.ICANON | unix.ECHO | unix.ISIG
 	raw.Iflag &^= unix.ICRNL | unix.IXON
 	raw.Cc[unix.VMIN], raw.Cc[unix.VTIME] = 1, 0
 	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &raw); err != nil {
@@ -52,9 +53,8 @@ func (r *Reader) readTerminal(prompt string) (string, bool, error) {
 			fmt.Fprintln(r.out)
 			return line, true, nil
 		case 3: // Ctrl-C
-			line = ""
 			fmt.Fprintln(r.out, "^C")
-			return line, true, nil
+			return "", true, ErrInterrupt
 		case 4: // Ctrl-D
 			if line == "" {
 				fmt.Fprintln(r.out)

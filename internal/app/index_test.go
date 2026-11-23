@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,7 +38,7 @@ func TestImportRecordsPipeline(t *testing.T) {
 	if builder.Count() != 2 {
 		t.Fatalf("imported %d records, want 2", builder.Count())
 	}
-	results, err := st.Search("second record", 10, 0)
+	results, err := st.Search(context.Background(), "second record", 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

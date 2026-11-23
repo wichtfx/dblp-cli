@@ -1,10 +1,14 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/wichtfx/dblp-cli/internal/bibtex"
 	"github.com/wichtfx/dblp-cli/internal/dump"
@@ -25,16 +29,31 @@ type activeQuery struct {
 	label  string // human description shown to the user
 }
 
-func (q activeQuery) run(st *store.Store, offset int) ([]store.Result, error) {
+func (q activeQuery) run(ctx context.Context, st *store.Store, offset int) ([]store.Result, error) {
 	switch {
 	case q.text != "":
-		return st.Search(q.text, pageSize, offset)
+		return st.Search(ctx, q.text, pageSize, offset)
 	case q.author != "":
-		return st.SearchAuthor(q.author, q.year, pageSize, offset)
+		return st.SearchAuthor(ctx, q.author, q.year, pageSize, offset)
 	case q.venue != "":
-		return st.SearchVenue(q.venue, q.year, pageSize, offset)
+		return st.SearchVenue(ctx, q.venue, q.year, pageSize, offset)
 	}
 	return nil, nil
+}
+
+// lineReader reads one line at the prompt; lineedit.Reader is one.
+type lineReader interface {
+	ReadLine(prompt string) (string, bool, error)
+}
+
+// session is the state of the interactive search between commands.
+type session struct {
+	st      *store.Store
+	active  activeQuery
+	current []store.Result // the visible page
+	offset  int
+	sel     *dump.Record // currently selected record (for faceting)
+	bibFile string       // the file the last `w` wrote to
 }
 
 // Interactive launches the search REPL. The user types queries to search,
@@ -46,110 +65,181 @@ func Interactive() error {
 		return err
 	}
 	defer st.Close()
+	return repl(st, lineedit.New(os.Stdin, os.Stderr))
+}
 
-	in := lineedit.New(os.Stdin, os.Stderr)
-
+// repl runs the interactive search. Ctrl-C cancels the running command and
+// leaves the page as it was; at the prompt it discards the typed line. A
+// Ctrl-C right after another one quits.
+func repl(st *store.Store, in lineReader) error {
+	s := &session{st: st}
 	var (
-		active  activeQuery
-		current []store.Result // the visible page
-		offset  int
-		sel     *dump.Record // currently selected record (for faceting)
-		bibFile string       // the file the last `w` wrote to
+		mu      sync.Mutex
+		cancel  context.CancelFunc // of the running command, nil at the prompt
+		sigs    = make(chan os.Signal, 1)
+		stopped = make(chan struct{})
 	)
+	signal.Notify(sigs, os.Interrupt)
+	defer func() { signal.Stop(sigs); close(stopped) }()
+	go func() {
+		for {
+			select {
+			case <-sigs:
+			case <-stopped:
+				return
+			}
+			mu.Lock()
+			c := cancel
+			mu.Unlock()
+			if c == nil {
+				// SIGINT at the prompt arrives only when the prompt is not
+				// read from a terminal, which takes Ctrl-C as a key.
+				os.Exit(130)
+			}
+			c()
+		}
+	}()
 
+	interrupted := false // the previous input was a Ctrl-C
 	printREPLHelp()
 	for {
 		fmt.Fprintln(os.Stderr)
 		line, ok, err := in.ReadLine(cyan("dblp> "))
+		if errors.Is(err, lineedit.ErrInterrupt) {
+			if interrupted {
+				return nil
+			}
+			interrupted = true
+			fmt.Fprintln(os.Stderr, "Press Ctrl-C again to quit.")
+			continue
+		}
 		if err != nil {
 			return err
 		}
 		if !ok {
 			return nil
 		}
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+		interrupted = false
+
+		ctx, c := context.WithCancel(context.Background())
+		mu.Lock()
+		cancel = c
+		mu.Unlock()
+		saved := *s
+		quit := s.do(ctx, strings.TrimSpace(line))
+		mu.Lock()
+		cancel = nil
+		mu.Unlock()
+		if ctx.Err() != nil {
+			*s = saved
+			interrupted = true
+			fmt.Fprintln(os.Stderr, "Cancelled. Press Ctrl-C again to quit.")
 		}
-		cmd, rest := split(line)
-
-		switch cmd {
-		case "q", "quit", "exit":
+		c()
+		if quit {
 			return nil
-		case "h", "help", "?":
-			printREPLHelp()
-
-		case "n", "next":
-			offset += pageSize
-			sel = nil
-			current = execQuery(st, active, offset)
-		case "p", "prev":
-			if offset >= pageSize {
-				offset -= pageSize
-			}
-			sel = nil
-			current = execQuery(st, active, offset)
-
-		case "au", "author": // drill down by an author of the selection
-			if q, ok := facetAuthor(sel, rest); ok {
-				active, offset, sel = q, 0, nil
-				current = execQuery(st, active, offset)
-			}
-		case "ve", "venue": // drill down by the selection's venue
-			if q, ok := facetVenue(sel, rest); ok {
-				active, offset, sel = q, 0, nil
-				current = execQuery(st, active, offset)
-			}
-
-		case "b", "bib":
-			doExport(st, current, rest, "", false, offset)
-		case "c", "copy":
-			doExport(st, current, rest, "", true, offset)
-		case "w", "write":
-			if file, ok := doWrite(st, current, rest, bibFile, sel, offset); ok {
-				bibFile = file
-			}
-		case "o", "open":
-			doOpen(st, current, rest, sel, offset)
-
-		default:
-			// Once a publication is selected, its numbered authors become the
-			// active menu. Otherwise a number selects a result from the page.
-			if sel != nil {
-				if n, err := strconv.Atoi(line); err == nil && n > 0 {
-					if q, ok := facetAuthor(sel, line); ok {
-						active, offset, sel = q, 0, nil
-						current = execQuery(st, active, offset)
-					}
-					continue
-				}
-			}
-			if i, ok := asResultIndex(line, len(current), offset); ok {
-				if r, found, _ := st.Get(current[i].Key); found {
-					if r.IsHomepage() && len(r.Authors) > 0 {
-						name := r.CleanAuthors()[0]
-						active = activeQuery{author: r.Authors[0], label: "author: " + name}
-						offset, sel = 0, nil
-						current = execQuery(st, active, offset)
-						continue
-					}
-					sel = &r
-					printFacets(offset+i+1, r)
-				}
-				continue
-			}
-			active = activeQuery{text: line, label: line}
-			offset, sel = 0, nil
-			current = execQuery(st, active, offset)
 		}
 	}
 }
 
-// execQuery runs the active query at the given offset and prints the page.
-func execQuery(st *store.Store, active activeQuery, offset int) []store.Result {
-	res, err := active.run(st, offset)
-	if err != nil {
+// do runs one command line and reports whether it asks to quit.
+func (s *session) do(ctx context.Context, line string) bool {
+	if line == "" {
+		return false
+	}
+	st := s.st
+	cmd, rest := split(line)
+	switch cmd {
+	case "q", "quit", "exit":
+		return true
+	case "h", "help", "?":
+		printREPLHelp()
+
+	case "n", "next":
+		s.offset += pageSize
+		s.sel = nil
+		s.current = execQuery(ctx, st, s.active, s.offset)
+	case "p", "prev":
+		if s.offset >= pageSize {
+			s.offset -= pageSize
+		}
+		s.sel = nil
+		s.current = execQuery(ctx, st, s.active, s.offset)
+
+	case "au", "author": // drill down by an author of the selection
+		if q, ok := facetAuthor(s.sel, rest); ok {
+			s.active, s.offset, s.sel = q, 0, nil
+			s.current = execQuery(ctx, st, s.active, s.offset)
+		}
+	case "ve", "venue": // drill down by the selection's venue
+		if q, ok := facetVenue(s.sel, rest); ok {
+			s.active, s.offset, s.sel = q, 0, nil
+			s.current = execQuery(ctx, st, s.active, s.offset)
+		}
+
+	case "b", "bib":
+		doExport(ctx, st, s.current, rest, "", false, s.offset)
+	case "c", "copy":
+		doExport(ctx, st, s.current, rest, "", true, s.offset)
+	case "w", "write":
+		if file, ok := doWrite(ctx, st, s.current, rest, s.bibFile, s.sel, s.offset); ok {
+			s.bibFile = file
+		}
+	case "o", "open":
+		doOpen(ctx, st, s.current, rest, s.sel, s.offset)
+
+	default:
+		// Once a publication is selected, its numbered authors become the
+		// active menu. Otherwise a number selects a result from the page.
+		if s.sel != nil {
+			if n, err := strconv.Atoi(line); err == nil && n > 0 {
+				if q, ok := facetAuthor(s.sel, line); ok {
+					s.active, s.offset, s.sel = q, 0, nil
+					s.current = execQuery(ctx, st, s.active, s.offset)
+				}
+				return false
+			}
+		}
+		if i, ok := asResultIndex(line, len(s.current), s.offset); ok {
+			r, found, err := st.Get(ctx, s.current[i].Key)
+			if err != nil {
+				printError(ctx, err)
+				return false
+			}
+			if !found {
+				return false
+			}
+			if r.IsHomepage() && len(r.Authors) > 0 {
+				name := r.CleanAuthors()[0]
+				s.active = activeQuery{author: r.Authors[0], label: "author: " + name}
+				s.offset, s.sel = 0, nil
+				s.current = execQuery(ctx, st, s.active, s.offset)
+				return false
+			}
+			s.sel = &r
+			printFacets(s.offset+i+1, r)
+			return false
+		}
+		s.active = activeQuery{text: line, label: line}
+		s.offset, s.sel = 0, nil
+		s.current = execQuery(ctx, st, s.active, s.offset)
+	}
+	return false
+}
+
+// printError prints err, unless it comes from a cancelled command, which the
+// REPL reports itself.
+func printError(ctx context.Context, err error) {
+	if ctx.Err() == nil {
 		fmt.Fprintln(os.Stderr, red("error:"), err)
+	}
+}
+
+// execQuery runs the active query at the given offset and prints the page.
+func execQuery(ctx context.Context, st *store.Store, active activeQuery, offset int) []store.Result {
+	res, err := active.run(ctx, st, offset)
+	if err != nil {
+		printError(ctx, err)
 		return nil
 	}
 	if len(res) == 0 {
@@ -251,14 +341,17 @@ func resolveYear(fields []string, i int, selYear string) string {
 
 // doExport resolves the selected result numbers and renders their bibtex. A
 // file is appended to, so that repeated `w` commands collect entries in it.
-func doExport(st *store.Store, current []store.Result, sel, file string, toClip bool, offset int) {
-	recs := selectRecords(st, current, sel, offset)
+func doExport(ctx context.Context, st *store.Store, current []store.Result, sel, file string, toClip bool, offset int) {
+	recs, err := selectRecords(ctx, st, current, sel, offset)
+	if err != nil {
+		printError(ctx, err)
+		return
+	}
 	if len(recs) == 0 {
 		fmt.Fprintln(os.Stderr, "Nothing selected. Example: b 1 3 5  (or `b all`)")
 		return
 	}
 	text := bibtex.RenderMany(recs)
-	var err error
 	if file != "" {
 		err = appendBibtex(text, file, len(recs))
 	} else {
@@ -272,7 +365,7 @@ func doExport(st *store.Store, current []store.Result, sel, file string, toClip 
 // doWrite appends BibTeX to a file for `w [file] [numbers]`. Without a file
 // it writes to lastFile, the file of the previous `w`; without numbers it
 // writes the selected publication. It returns the file it wrote to.
-func doWrite(st *store.Store, current []store.Result, rest, lastFile string, sel *dump.Record, offset int) (string, bool) {
+func doWrite(ctx context.Context, st *store.Store, current []store.Result, rest, lastFile string, sel *dump.Record, offset int) (string, bool) {
 	file, nums := split(rest)
 	if file == "" {
 		file = lastFile
@@ -281,12 +374,10 @@ func doWrite(st *store.Store, current []store.Result, rest, lastFile string, sel
 		fmt.Fprintln(os.Stderr, "usage: w <file> [numbers]")
 		return "", false
 	}
-	var recs []dump.Record
-	switch {
-	case nums != "":
-		recs = selectRecords(st, current, nums, offset)
-	case sel != nil:
-		recs = []dump.Record{*sel}
+	recs, err := chosenRecords(ctx, st, current, nums, sel, offset)
+	if err != nil {
+		printError(ctx, err)
+		return "", false
 	}
 	if len(recs) == 0 {
 		fmt.Fprintln(os.Stderr, "Nothing selected. Select a result, or give numbers: w refs.bib 1 3")
@@ -301,19 +392,20 @@ func doWrite(st *store.Store, current []store.Result, rest, lastFile string, sel
 
 // doOpen opens the given results in the browser, or the selected publication
 // when no numbers are given.
-func doOpen(st *store.Store, current []store.Result, nums string, sel *dump.Record, offset int) {
-	var recs []dump.Record
-	switch {
-	case strings.TrimSpace(nums) != "":
-		recs = selectRecords(st, current, nums, offset)
-	case sel != nil:
-		recs = []dump.Record{*sel}
+func doOpen(ctx context.Context, st *store.Store, current []store.Result, nums string, sel *dump.Record, offset int) {
+	recs, err := chosenRecords(ctx, st, current, nums, sel, offset)
+	if err != nil {
+		printError(ctx, err)
+		return
 	}
 	if len(recs) == 0 {
 		fmt.Fprintln(os.Stderr, "Nothing selected. Select a result, or give numbers: o 1 3")
 		return
 	}
 	for _, r := range recs {
+		if ctx.Err() != nil {
+			return
+		}
 		link := r.Link()
 		fmt.Fprintln(os.Stderr, "Opening", link)
 		if err := openURL(link); err != nil {
@@ -322,15 +414,31 @@ func doOpen(st *store.Store, current []store.Result, nums string, sel *dump.Reco
 	}
 }
 
+// chosenRecords returns the records of the result numbers nums, or the
+// selected publication when nums is empty.
+func chosenRecords(ctx context.Context, st *store.Store, current []store.Result, nums string, sel *dump.Record, offset int) ([]dump.Record, error) {
+	switch {
+	case strings.TrimSpace(nums) != "":
+		return selectRecords(ctx, st, current, nums, offset)
+	case sel != nil:
+		return []dump.Record{*sel}, nil
+	}
+	return nil, nil
+}
+
 // selectRecords maps a selection string ("all" or numbers) to full records.
-func selectRecords(st *store.Store, current []store.Result, sel string, offset int) []dump.Record {
+func selectRecords(ctx context.Context, st *store.Store, current []store.Result, sel string, offset int) ([]dump.Record, error) {
 	var recs []dump.Record
 	for _, i := range parseSelection(sel, len(current), offset) {
-		if r, ok, err := st.Get(current[i].Key); err == nil && ok {
+		r, ok, err := st.Get(ctx, current[i].Key)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
 			recs = append(recs, r)
 		}
 	}
-	return recs
+	return recs, nil
 }
 
 // parseSelection turns "all" or "1 3 5" (1-based) into 0-based indexes,
@@ -395,6 +503,7 @@ Interactive search. Commands:
   c <nums|all>      copy results to the clipboard
   w [file] [nums]   append results, or the selection, to a file (default: the last one)
   o [nums]          open results, or the selection, in the browser
+  Ctrl-C            cancel a running search; twice in a row quits
   h / q             help / quit`)
 	fmt.Fprintln(os.Stderr, h)
 }

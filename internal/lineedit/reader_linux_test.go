@@ -91,3 +91,31 @@ func TestReadTerminalIgnoresLoneEscape(t *testing.T) {
 		t.Fatalf("ReadLine = %q, want %q", line, "x")
 	}
 }
+
+func TestReadTerminalReportsCtrlC(t *testing.T) {
+	master, slave := openPTY(t)
+	// The bytes are written once the reader has set raw mode: in cooked mode
+	// the terminal takes Ctrl-C itself.
+	go func() {
+		time.Sleep(4 * escapeWait)
+		master.WriteString("abc\x03")
+	}()
+	type read struct {
+		line string
+		ok   bool
+		err  error
+	}
+	done := make(chan read, 1)
+	go func() {
+		line, ok, err := New(slave, io.Discard).ReadLine("> ")
+		done <- read{line, ok, err}
+	}()
+	select {
+	case r := <-done:
+		if r.err != ErrInterrupt || !r.ok || r.line != "" {
+			t.Fatalf("ReadLine = %q, %v, %v; want \"\", true, ErrInterrupt", r.line, r.ok, r.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ReadLine did not return on Ctrl-C")
+	}
+}

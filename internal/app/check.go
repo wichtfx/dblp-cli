@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -30,7 +31,7 @@ func Check(path string) error {
 
 	var results []check.Result
 	for _, e := range entries {
-		res, err := check.Entry(st, e)
+		res, err := check.Entry(context.Background(), st, e)
 		if err != nil {
 			return fmt.Errorf("%s: %w", e.Key, err)
 		}

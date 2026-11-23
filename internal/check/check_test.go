@@ -1,6 +1,7 @@
 package check
 
 import (
+	"context"
 	"testing"
 
 	"github.com/wichtfx/dblp-cli/internal/bibtex"
@@ -110,7 +111,7 @@ func TestEntry(t *testing.T) {
 		{"unknown dblp key", bibtex.Entry{Key: "DBLP:conf/x/None", Fields: map[string]string{}}, NotFound, ""},
 	}
 	for _, tt := range tests {
-		res, err := Entry(st, tt.entry)
+		res, err := Entry(context.Background(), st, tt.entry)
 		if err != nil {
 			t.Fatalf("%s: %v", tt.name, err)
 		}

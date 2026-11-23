@@ -2,6 +2,7 @@
 package check
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"slices"
@@ -38,9 +39,9 @@ type Result struct {
 // Entry looks the entry up in the index and compares it with the record
 // found. It looks up, in order, a key of the form DBLP:<key>, the DOI, and
 // the title.
-func Entry(st *store.Store, e bibtex.Entry) (Result, error) {
+func Entry(ctx context.Context, st *store.Store, e bibtex.Entry) (Result, error) {
 	res := Result{Entry: e, Status: NotFound}
-	candidates, how, err := lookup(st, e)
+	candidates, how, err := lookup(ctx, st, e)
 	if err != nil {
 		return res, err
 	}
@@ -68,16 +69,16 @@ func isCoRR(r dump.Record) bool { return strings.HasPrefix(r.Key, "journals/corr
 
 // lookup returns the candidate records for an entry, or a note on why there
 // is none.
-func lookup(st *store.Store, e bibtex.Entry) ([]dump.Record, string, error) {
+func lookup(ctx context.Context, st *store.Store, e bibtex.Entry) ([]dump.Record, string, error) {
 	if key, ok := strings.CutPrefix(e.Key, "DBLP:"); ok {
-		r, found, err := st.Get(key)
+		r, found, err := st.Get(ctx, key)
 		if err != nil || found {
 			return []dump.Record{r}, "", err
 		}
 		return nil, "no dblp record has key " + key, nil
 	}
 	if doi := entryDOI(e); doi != "" {
-		recs, err := st.ByDOI(doi)
+		recs, err := st.ByDOI(ctx, doi)
 		if err != nil && err != store.ErrNoDOIIndex {
 			return nil, "", err
 		}
@@ -95,7 +96,7 @@ func lookup(st *store.Store, e bibtex.Entry) ([]dump.Record, string, error) {
 	for _, w := range strings.Fields(title) {
 		terms = append(terms, `"`+w+`"`)
 	}
-	results, err := st.SearchQuery("title:("+strings.Join(terms, " ")+")", "", 50, 0)
+	results, err := st.SearchQuery(ctx, "title:("+strings.Join(terms, " ")+")", "", 50, 0)
 	if err != nil {
 		return nil, "", err
 	}
@@ -104,7 +105,7 @@ func lookup(st *store.Store, e bibtex.Entry) ([]dump.Record, string, error) {
 		if r.Type == "www" || !sameTitle(r.Title, e.Fields["title"]) {
 			continue
 		}
-		rec, found, err := st.Get(r.Key)
+		rec, found, err := st.Get(ctx, r.Key)
 		if err != nil {
 			return nil, "", err
 		}

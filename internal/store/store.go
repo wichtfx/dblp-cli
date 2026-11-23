@@ -10,6 +10,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -326,15 +327,15 @@ func (b *Builder) createKeyIndex() (deduped bool, err error) {
 
 // SearchAuthor returns publications belonging to one exact DBLP author
 // identity. rawAuthor may include DBLP's numeric homonym suffix.
-func (s *Store) SearchAuthor(rawAuthor, year string, limit, offset int) ([]Result, error) {
+func (s *Store) SearchAuthor(ctx context.Context, rawAuthor, year string, limit, offset int) ([]Result, error) {
 	var indexed bool
-	if err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM author_pubs LIMIT 1)`).Scan(&indexed); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM author_pubs LIMIT 1)`).Scan(&indexed); err != nil {
 		return nil, err
 	}
 	if !indexed {
 		// Compatibility with indexes created before the author mapping existed.
 		// A rebuild restores exact homonym-aware matching.
-		return s.SearchQuery(ColumnPhrase("authors", dump.CleanName(rawAuthor)), year, limit, offset)
+		return s.SearchQuery(ctx, ColumnPhrase("authors", dump.CleanName(rawAuthor)), year, limit, offset)
 	}
 
 	q := `SELECT p.key, p.type, p.title, p.authors, p.venue, p.year
@@ -347,7 +348,7 @@ func (s *Store) SearchAuthor(rawAuthor, year string, limit, offset int) ([]Resul
 	}
 	q += " ORDER BY p.year DESC, p.title LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -358,7 +359,7 @@ func (s *Store) SearchAuthor(rawAuthor, year string, limit, offset int) ([]Resul
 // SearchVenue returns publications whose venue is exactly venue, newest
 // first. The FTS phrase narrows the candidates; the equality test removes
 // venues that only contain the phrase, such as workshops of a conference.
-func (s *Store) SearchVenue(venue, year string, limit, offset int) ([]Result, error) {
+func (s *Store) SearchVenue(ctx context.Context, venue, year string, limit, offset int) ([]Result, error) {
 	q := `SELECT p.key, p.type, p.title, p.authors, p.venue, p.year
 		FROM fts JOIN pubs p ON p.id = fts.rowid
 		WHERE fts MATCH ? AND p.venue = ?`
@@ -369,7 +370,7 @@ func (s *Store) SearchVenue(venue, year string, limit, offset int) ([]Result, er
 	}
 	q += " ORDER BY p.year DESC, p.title LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -382,8 +383,8 @@ var ErrNoDOIIndex = errors.New("this index has no DOI table; rebuild it with `db
 
 // ByDOI returns the records whose links carry doi, which may be written as a
 // bare DOI, a doi.org URL or with a "doi:" prefix.
-func (s *Store) ByDOI(doi string) ([]dump.Record, error) {
-	rows, err := s.db.Query(`SELECT p.key FROM doi_pubs d JOIN pubs p ON p.id = d.pub_id
+func (s *Store) ByDOI(ctx context.Context, doi string) ([]dump.Record, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT p.key FROM doi_pubs d JOIN pubs p ON p.id = d.pub_id
 		WHERE d.doi = ? ORDER BY p.id`, dump.NormalizeDOI(doi))
 	if err != nil {
 		if strings.Contains(err.Error(), "no such table") {
@@ -406,7 +407,7 @@ func (s *Store) ByDOI(doi string) ([]dump.Record, error) {
 	}
 	var recs []dump.Record
 	for _, key := range keys {
-		r, ok, err := s.Get(key)
+		r, ok, err := s.Get(ctx, key)
 		if err != nil {
 			return nil, err
 		}
@@ -419,20 +420,20 @@ func (s *Store) ByDOI(doi string) ([]dump.Record, error) {
 
 // Search runs a free-text query and returns up to limit results ranked by
 // BM25, with title matches weighted highest.
-func (s *Store) Search(query string, limit, offset int) ([]Result, error) {
-	return s.search(buildMatch(query), "", query, limit, offset)
+func (s *Store) Search(ctx context.Context, query string, limit, offset int) ([]Result, error) {
+	return s.search(ctx, buildMatch(query), "", query, limit, offset)
 }
 
 // SearchQuery runs an already-built FTS5 MATCH expression, optionally
 // restricted to a single year. It backs the interactive facet drill-down
 // (filter by an author or venue, narrowed to a year).
-func (s *Store) SearchQuery(match, year string, limit, offset int) ([]Result, error) {
-	return s.search(match, year, match, limit, offset)
+func (s *Store) SearchQuery(ctx context.Context, match, year string, limit, offset int) ([]Result, error) {
+	return s.search(ctx, match, year, match, limit, offset)
 }
 
 // search is the shared query path. display is the user-facing query string
 // used only to phrase syntax errors.
-func (s *Store) search(match, year, display string, limit, offset int) ([]Result, error) {
+func (s *Store) search(ctx context.Context, match, year, display string, limit, offset int) ([]Result, error) {
 	if match == "" {
 		return nil, nil
 	}
@@ -447,7 +448,7 @@ func (s *Store) search(match, year, display string, limit, offset int) ([]Result
 	q += " ORDER BY bm25(fts, 10.0, 5.0, 2.0, 1.0) LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
 
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		if strings.Contains(err.Error(), "fts5: syntax error") {
 			return nil, fmt.Errorf("invalid query %q — searchable columns are "+
@@ -481,9 +482,9 @@ func ColumnPhrase(col, val string) string {
 }
 
 // Get returns the full record for a dblp key, ok=false if not found.
-func (s *Store) Get(key string) (dump.Record, bool, error) {
+func (s *Store) Get(ctx context.Context, key string) (dump.Record, bool, error) {
 	var typ, title, year, blob string
-	err := s.db.QueryRow(`SELECT type, title, year, data FROM pubs WHERE key = ?`, key).Scan(&typ, &title, &year, &blob)
+	err := s.db.QueryRowContext(ctx, `SELECT type, title, year, data FROM pubs WHERE key = ?`, key).Scan(&typ, &title, &year, &blob)
 	if err == sql.ErrNoRows {
 		return dump.Record{}, false, nil
 	}

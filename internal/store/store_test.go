@@ -1,7 +1,10 @@
 package store
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -32,14 +35,14 @@ func TestSearchAuthorUsesDBLPIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := st.SearchAuthor("Wei Wang 0001", "", 20, 0)
+	got, err := st.SearchAuthor(context.Background(), "Wei Wang 0001", "", 20, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0].Key != "journals/a/Wang24" {
 		t.Fatalf("SearchAuthor returned %#v", got)
 	}
-	got, err = st.SearchAuthor("Wei Wang 0001", "", 20, 20)
+	got, err = st.SearchAuthor(context.Background(), "Wei Wang 0001", "", 20, 20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +73,7 @@ func TestBuilderFlushesAuthorBatches(t *testing.T) {
 	if err := b.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.SearchAuthor("Author 1000", "", 10, 0)
+	got, err := st.SearchAuthor(context.Background(), "Author 1000", "", 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +103,7 @@ func TestSearchVenueIsExact(t *testing.T) {
 	if err := b.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.SearchVenue("CCS", "", 20, 0)
+	got, err := st.SearchVenue(context.Background(), "CCS", "", 20, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,14 +152,14 @@ func TestBuilderKeepsFirstOfDuplicateKeys(t *testing.T) {
 	if b.Count() != 2 {
 		t.Fatalf("Count = %d, want 2", b.Count())
 	}
-	r, ok, err := st.Get("journals/x/Dup")
+	r, ok, err := st.Get(context.Background(), "journals/x/Dup")
 	if err != nil || !ok || r.Title != "First Copy" {
 		t.Fatalf("Get = %#v, %v, %v", r, ok, err)
 	}
-	if got, err := st.SearchAuthor("Ben Author", "", 10, 0); err != nil || len(got) != 0 {
+	if got, err := st.SearchAuthor(context.Background(), "Ben Author", "", 10, 0); err != nil || len(got) != 0 {
 		t.Fatalf("author of the removed copy still linked: %#v, %v", got, err)
 	}
-	if got, err := st.SearchAuthor("Ada Author", "", 10, 0); err != nil || len(got) != 2 {
+	if got, err := st.SearchAuthor(context.Background(), "Ada Author", "", 10, 0); err != nil || len(got) != 2 {
 		t.Fatalf("SearchAuthor(Ada Author) = %#v, %v", got, err)
 	}
 	if _, err := st.db.Exec(`INSERT INTO pubs(key) VALUES('journals/x/Dup')`); err == nil {
@@ -192,7 +195,7 @@ func TestGetRestoresFieldsLeftOutOfStoredJSON(t *testing.T) {
 			t.Errorf("stored JSON has %s: %s", field, blob)
 		}
 	}
-	got, ok, err := st.Get(want.Key)
+	got, ok, err := st.Get(context.Background(), want.Key)
 	if err != nil || !ok {
 		t.Fatalf("Get: %v, %v", ok, err)
 	}
@@ -223,17 +226,43 @@ func TestByDOI(t *testing.T) {
 	if err := b.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.ByDOI("https://doi.org/10.1145/362929.362947")
+	got, err := st.ByDOI(context.Background(), "https://doi.org/10.1145/362929.362947")
 	if err != nil || len(got) != 1 || got[0].Key != "journals/cacm/Dijkstra68a" {
 		t.Fatalf("ByDOI = %#v, %v", got, err)
 	}
-	if got, err := st.ByDOI("10.1145/none"); err != nil || len(got) != 0 {
+	if got, err := st.ByDOI(context.Background(), "10.1145/none"); err != nil || len(got) != 0 {
 		t.Fatalf("ByDOI(unknown) = %#v, %v", got, err)
 	}
 	if _, err := st.db.Exec(`DROP TABLE doi_pubs`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ByDOI("10.1145/362929.362947"); err != ErrNoDOIIndex {
+	if _, err := st.ByDOI(context.Background(), "10.1145/362929.362947"); err != ErrNoDOIIndex {
 		t.Fatalf("ByDOI on an old index: %v", err)
+	}
+}
+
+func TestCancelledContextStopsSearch(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "dblp.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	b, err := st.NewBuilder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Add(dump.Record{Type: "article", Key: "journals/x/A", Title: "Record.", Year: "2025"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := st.Search(ctx, "record", 10, 0); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Search with a cancelled context = %v, want context.Canceled", err)
+	}
+	if _, _, err := st.Get(ctx, "journals/x/A"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Get with a cancelled context = %v, want context.Canceled", err)
 	}
 }

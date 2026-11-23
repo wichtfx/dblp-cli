@@ -4,6 +4,7 @@ package lineedit
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,10 @@ const (
 	previousPage = "\x00previous-page"
 	nextPage     = "\x00next-page"
 )
+
+// ErrInterrupt is returned by ReadLine when Ctrl-C is typed at the prompt;
+// the typed line is discarded.
+var ErrInterrupt = errors.New("interrupt")
 
 type Reader struct {
 	in      *os.File

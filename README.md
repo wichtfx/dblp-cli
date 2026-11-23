@@ -66,6 +66,8 @@ dblp> q            # quit
 
 The Up and Down arrow keys browse the command history. The Left and Right arrow keys show the previous and next page of results, as `p` and `n` do.
 
+Ctrl-C cancels a search that is running and keeps the page shown before it. At the prompt, Ctrl-C discards the typed line. A second Ctrl-C right after the first quits.
+
 Typing the number of a result selects it, and the selected result's authors, numbered, its venue and its year are printed. `au <k>` or the number `k` searches for the publications of the selection's `k`-th author, and `au` without `k` for those of its first author. `ve` searches for the publications of the selection's venue. Both take a year as a further argument, and `y` stands for the selection's year. `n` and `p` page through these results as through any search.
 
 `o` opens a paper in the browser, at its DOI or publisher link, and at its dblp page when it has none. `w <file>` appends BibTeX to a file, and `w` without a file appends to the file of the previous `w`. Both take result numbers, and without numbers they act on the selected paper.

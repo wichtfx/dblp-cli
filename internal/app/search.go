@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -18,7 +19,7 @@ func Search(query string, limit int) error {
 	}
 	defer st.Close()
 
-	res, err := st.Search(query, limit, 0)
+	res, err := st.Search(context.Background(), query, limit, 0)
 	if err != nil {
 		return err
 	}
@@ -41,7 +42,7 @@ func Bibtex(keys []string, outFile string, toClip bool) error {
 
 	var recs []dump.Record
 	for _, k := range keys {
-		r, ok, err := st.Get(k)
+		r, ok, err := st.Get(context.Background(), k)
 		if err != nil {
 			return err
 		}
@@ -69,7 +70,7 @@ func DOI(dois []string, outFile string, toClip bool) error {
 
 	var recs []dump.Record
 	for _, doi := range dois {
-		found, err := st.ByDOI(doi)
+		found, err := st.ByDOI(context.Background(), doi)
 		if err != nil {
 			return err
 		}
