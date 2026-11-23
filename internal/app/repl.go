@@ -54,6 +54,7 @@ func Interactive() error {
 		current []store.Result // the visible page
 		offset  int
 		sel     *dump.Record // currently selected record (for faceting)
+		bibFile string       // the file the last `w` wrote to
 	)
 
 	printREPLHelp()
@@ -105,14 +106,11 @@ func Interactive() error {
 		case "c", "copy":
 			doExport(st, current, rest, "", true, offset)
 		case "w", "write":
-			file, nums := split(rest)
-			if file == "" {
-				fmt.Fprintln(os.Stderr, "usage: w <file> <numbers>")
-				continue
+			if file, ok := doWrite(st, current, rest, bibFile, sel, offset); ok {
+				bibFile = file
 			}
-			doExport(st, current, nums, file, false, offset)
 		case "o", "open":
-			doOpen(current, rest, offset)
+			doOpen(st, current, rest, sel, offset)
 
 		default:
 			// Once a publication is selected, its numbered authors become the
@@ -187,6 +185,7 @@ func printFacets(num int, r dump.Record) {
 		fmt.Fprintf(os.Stderr, "  year:    %s\n", yellow(r.Year))
 	}
 	fmt.Fprintln(os.Stderr, dim("  drill down: au <k> [year|y] · ve [year|y]   (y = this paper's year)"))
+	fmt.Fprintln(os.Stderr, dim("  o: open in the browser · w [file]: append its BibTeX to a file"))
 }
 
 // facetAuthor builds a query for papers by the k-th author of the selection,
@@ -270,10 +269,56 @@ func doExport(st *store.Store, current []store.Result, sel, file string, toClip 
 	}
 }
 
-// doOpen prints the external links for the selected results.
-func doOpen(current []store.Result, sel string, offset int) {
-	for _, i := range parseSelection(sel, len(current), offset) {
-		fmt.Fprintf(os.Stderr, "%d. https://dblp.org/rec/%s.html\n", offset+i+1, current[i].Key)
+// doWrite appends BibTeX to a file for `w [file] [numbers]`. Without a file
+// it writes to lastFile, the file of the previous `w`; without numbers it
+// writes the selected publication. It returns the file it wrote to.
+func doWrite(st *store.Store, current []store.Result, rest, lastFile string, sel *dump.Record, offset int) (string, bool) {
+	file, nums := split(rest)
+	if file == "" {
+		file = lastFile
+	}
+	if file == "" {
+		fmt.Fprintln(os.Stderr, "usage: w <file> [numbers]")
+		return "", false
+	}
+	var recs []dump.Record
+	switch {
+	case nums != "":
+		recs = selectRecords(st, current, nums, offset)
+	case sel != nil:
+		recs = []dump.Record{*sel}
+	}
+	if len(recs) == 0 {
+		fmt.Fprintln(os.Stderr, "Nothing selected. Select a result, or give numbers: w refs.bib 1 3")
+		return "", false
+	}
+	if err := appendBibtex(bibtex.RenderMany(recs), file, len(recs)); err != nil {
+		fmt.Fprintln(os.Stderr, red("error:"), err)
+		return "", false
+	}
+	return file, true
+}
+
+// doOpen opens the given results in the browser, or the selected publication
+// when no numbers are given.
+func doOpen(st *store.Store, current []store.Result, nums string, sel *dump.Record, offset int) {
+	var recs []dump.Record
+	switch {
+	case strings.TrimSpace(nums) != "":
+		recs = selectRecords(st, current, nums, offset)
+	case sel != nil:
+		recs = []dump.Record{*sel}
+	}
+	if len(recs) == 0 {
+		fmt.Fprintln(os.Stderr, "Nothing selected. Select a result, or give numbers: o 1 3")
+		return
+	}
+	for _, r := range recs {
+		link := r.Link()
+		fmt.Fprintln(os.Stderr, "Opening", link)
+		if err := openURL(link); err != nil {
+			fmt.Fprintln(os.Stderr, red("error:"), err)
+		}
 	}
 }
 
@@ -348,8 +393,8 @@ Interactive search. Commands:
   ← / →             previous / next publication page
   b <nums|all>      print BibTeX for results        (e.g. b 1 3 5)
   c <nums|all>      copy results to the clipboard
-  w <file> <nums>   append results to a file
-  o <nums>          show dblp page links
+  w [file] [nums]   append results, or the selection, to a file (default: the last one)
+  o [nums]          open results, or the selection, in the browser
   h / q             help / quit`)
 	fmt.Fprintln(os.Stderr, h)
 }

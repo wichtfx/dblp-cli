@@ -1,9 +1,15 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/wichtfx/dblp-cli/internal/bibtex"
 	"github.com/wichtfx/dblp-cli/internal/dump"
+	"github.com/wichtfx/dblp-cli/internal/store"
 )
 
 func TestFacetAuthorKeepsRawIdentity(t *testing.T) {
@@ -77,5 +83,89 @@ func TestFacetAuthorReadsYearWithoutAuthorNumber(t *testing.T) {
 	}
 	if _, ok := facetAuthor(&record, "3"); ok {
 		t.Fatal("facetAuthor accepted author 3 of 2")
+	}
+}
+
+// testStore indexes two records, the first with a DOI link, and returns the
+// store and a search page holding both.
+func testStore(t *testing.T) (*store.Store, []store.Result) {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "dblp.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	b, err := st.NewBuilder()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []dump.Record{
+		{Type: "article", Key: "journals/test/One", Authors: []string{"Ada Author"}, Title: "First Record.", Journal: "Test", Year: "2025", EE: []string{"https://doi.org/10.1/one"}},
+		{Type: "article", Key: "journals/test/Two", Authors: []string{"Ben Author"}, Title: "Second Record.", Journal: "Test", Year: "2026", URL: "db/journals/test/test1.html#Two"},
+	} {
+		if err := b.Add(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := b.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	res, err := st.Search("record", pageSize, 0)
+	if err != nil || len(res) != 2 {
+		t.Fatalf("Search = %v, %v; want 2 results", res, err)
+	}
+	return st, res
+}
+
+func TestOpenUsesSelectionOrNumbers(t *testing.T) {
+	st, res := testStore(t)
+	var opened []string
+	saved := openURL
+	openURL = func(url string) error { opened = append(opened, url); return nil }
+	t.Cleanup(func() { openURL = saved })
+
+	sel, _, _ := st.Get("journals/test/One")
+	doOpen(st, res, "", &sel, 0)
+	doOpen(st, res, "all", nil, 0)
+	doOpen(st, res, "", nil, 0)
+
+	want := []string{"https://doi.org/10.1/one"}
+	for _, r := range res {
+		rec, _, _ := st.Get(r.Key)
+		want = append(want, rec.Link())
+	}
+	if strings.Join(opened, " ") != strings.Join(want, " ") {
+		t.Fatalf("opened %v, want %v", opened, want)
+	}
+	if !slices.Contains(opened, "https://dblp.org/rec/journals/test/Two.html") {
+		t.Fatalf("opened %v, want the dblp page of a record without a link", opened)
+	}
+}
+
+func TestWriteAppendsSelectionToLastFile(t *testing.T) {
+	st, res := testStore(t)
+	file := filepath.Join(t.TempDir(), "refs.bib")
+	one, _, _ := st.Get("journals/test/One")
+	two, _, _ := st.Get("journals/test/Two")
+
+	if _, ok := doWrite(st, res, "", "", &one, 0); ok {
+		t.Fatal("w without a file and without a previous file succeeded")
+	}
+	got, ok := doWrite(st, res, file, "", &one, 0)
+	if !ok || got != file {
+		t.Fatalf("w %s = %q, %v", file, got, ok)
+	}
+	if got, ok = doWrite(st, res, "", file, &two, 0); !ok || got != file {
+		t.Fatalf("w = %q, %v; want the previous file", got, ok)
+	}
+	if _, ok = doWrite(st, res, "", file, nil, 0); ok {
+		t.Fatal("w without a selection and without numbers succeeded")
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := bibtex.Render(one) + "\n" + bibtex.Render(two); string(data) != want {
+		t.Fatalf("file = %q, want %q", data, want)
 	}
 }

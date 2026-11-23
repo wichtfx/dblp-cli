@@ -58,7 +58,8 @@ dblp> ve           # re-search by its venue (NIPS); `ve y` adds the year
 dblp> b 1 3        # print BibTeX for results 1 and 3
 dblp> c 1          # copy result 1 to the clipboard
 dblp> w refs.bib all   # append the whole page to a file
-dblp> o 1          # show the dblp page link
+dblp> w            # append the selection to the last file written (refs.bib)
+dblp> o 1          # open result 1 in the browser; `o` alone opens the selection
 dblp> n / p        # next / previous page
 dblp> q            # quit
 ```
@@ -66,6 +67,8 @@ dblp> q            # quit
 The Up and Down arrow keys browse the command history. The Left and Right arrow keys show the previous and next page of results, as `p` and `n` do.
 
 Typing the number of a result selects it, and the selected result's authors, numbered, its venue and its year are printed. `au <k>` or the number `k` searches for the publications of the selection's `k`-th author, and `au` without `k` for those of its first author. `ve` searches for the publications of the selection's venue. Both take a year as a further argument, and `y` stands for the selection's year. `n` and `p` page through these results as through any search.
+
+`o` opens a paper in the browser, at its DOI or publisher link, and at its dblp page when it has none. `w <file>` appends BibTeX to a file, and `w` without a file appends to the file of the previous `w`. Both take result numbers, and without numbers they act on the selected paper.
 
 Selecting an author homepage lists that author's publications. The index stores dblp's identity of each author, so two authors with the same name are kept apart. An index built by a version of dblp-cli without this feature does not have that identity; `dblp-cli index` rebuilds it with it.
 
