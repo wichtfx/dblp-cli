@@ -150,9 +150,6 @@ func TestWriteAppendsSelectionToLastFile(t *testing.T) {
 	one, _, _ := st.Get(context.Background(), "journals/test/One")
 	two, _, _ := st.Get(context.Background(), "journals/test/Two")
 
-	if _, ok := doWrite(context.Background(), st, res, "", "", &one, 0); ok {
-		t.Fatal("w without a file and without a previous file succeeded")
-	}
 	got, ok := doWrite(context.Background(), st, res, file, "", &one, 0)
 	if !ok || got != file {
 		t.Fatalf("w %s = %q, %v", file, got, ok)
@@ -164,6 +161,27 @@ func TestWriteAppendsSelectionToLastFile(t *testing.T) {
 		t.Fatal("w without a selection and without numbers succeeded")
 	}
 	data, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := bibtex.Render(one) + "\n" + bibtex.Render(two); string(data) != want {
+		t.Fatalf("file = %q, want %q", data, want)
+	}
+}
+
+func TestWriteDefaultsToDblpCliBib(t *testing.T) {
+	st, res := testStore(t)
+	t.Chdir(t.TempDir())
+	one, _, _ := st.Get(context.Background(), "journals/test/One")
+	two, _, _ := st.Get(context.Background(), "journals/test/Two")
+
+	if got, ok := doWrite(context.Background(), st, res, "", "", &one, 0); !ok || got != "dblp-cli.bib" {
+		t.Fatalf("w = %q, %v; want dblp-cli.bib", got, ok)
+	}
+	if got, ok := doWrite(context.Background(), st, res, "2", "", nil, 0); !ok || got != "dblp-cli.bib" {
+		t.Fatalf("w 2 = %q, %v; want dblp-cli.bib", got, ok)
+	}
+	data, err := os.ReadFile("dblp-cli.bib")
 	if err != nil {
 		t.Fatal(err)
 	}

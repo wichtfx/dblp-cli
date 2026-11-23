@@ -362,17 +362,23 @@ func doExport(ctx context.Context, st *store.Store, current []store.Result, sel,
 	}
 }
 
+// defaultBibFile is the file `w` writes to before any file is named.
+const defaultBibFile = "dblp-cli.bib"
+
 // doWrite appends BibTeX to a file for `w [file] [numbers]`. Without a file
-// it writes to lastFile, the file of the previous `w`; without numbers it
-// writes the selected publication. It returns the file it wrote to.
+// it writes to lastFile, the file of the previous `w`, or to defaultBibFile;
+// without numbers it writes the selected publication. It returns the file it
+// wrote to.
 func doWrite(ctx context.Context, st *store.Store, current []store.Result, rest, lastFile string, sel *dump.Record, offset int) (string, bool) {
 	file, nums := split(rest)
+	if isSelection(file) {
+		file, nums = "", rest
+	}
 	if file == "" {
 		file = lastFile
 	}
 	if file == "" {
-		fmt.Fprintln(os.Stderr, "usage: w <file> [numbers]")
-		return "", false
+		file = defaultBibFile
 	}
 	recs, err := chosenRecords(ctx, st, current, nums, sel, offset)
 	if err != nil {
@@ -441,6 +447,16 @@ func selectRecords(ctx context.Context, st *store.Store, current []store.Result,
 	return recs, nil
 }
 
+// isSelection reports whether s is the first word of a selection, a result
+// number or "all", and not a file name.
+func isSelection(s string) bool {
+	if s == "all" || s == "*" {
+		return true
+	}
+	_, err := strconv.Atoi(strings.TrimRight(s, ","))
+	return err == nil
+}
+
 // parseSelection turns "all" or "1 3 5" (1-based) into 0-based indexes,
 // ignoring out-of-range values.
 func parseSelection(sel string, n, offset int) []int {
@@ -501,7 +517,7 @@ Interactive search. Commands:
   ← / →             previous / next publication page
   b <nums|all>      print BibTeX for results        (e.g. b 1 3 5)
   c <nums|all>      copy results to the clipboard
-  w [file] [nums]   append results, or the selection, to a file (default: the last one)
+  w [file] [nums]   append results, or the selection, to a file (default: the last one, else dblp-cli.bib)
   o [nums]          open results, or the selection, in the browser
   Ctrl-C            cancel a running search; twice in a row quits
   h / q             help / quit`)
