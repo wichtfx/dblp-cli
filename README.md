@@ -42,7 +42,7 @@ dblp-cli                                         # interactive search, the defau
 
 ### Interactive mode
 
-Each result is printed in colour: its number, title, venue, year and publication type. dblp keys and the command guide at startup are printed in the terminal's normal text intensity. Colour is off when the output is piped or `NO_COLOR` is set.
+Each result is printed in colour: its number, title, venue, year and publication type. dblp keys, the command guide, the search label and the hints under a selection are printed in normal text. Colour is off when the output is piped or `NO_COLOR` is set.
 
 ```
 dblp> deep learning attention      # search

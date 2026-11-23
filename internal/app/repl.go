@@ -161,7 +161,7 @@ func execQuery(st *store.Store, active activeQuery, offset int) []store.Result {
 		return nil
 	}
 	if active.label != "" {
-		fmt.Fprintf(os.Stderr, "%s\n", dim("— "+active.label+" —"))
+		fmt.Fprintln(os.Stderr, "— "+active.label+" —")
 	}
 	printResults(res, offset)
 	return res
@@ -184,8 +184,8 @@ func printFacets(num int, r dump.Record) {
 	if r.Year != "" {
 		fmt.Fprintf(os.Stderr, "  year:    %s\n", yellow(r.Year))
 	}
-	fmt.Fprintln(os.Stderr, dim("  drill down: au <k> [year|y] · ve [year|y]   (y = this paper's year)"))
-	fmt.Fprintln(os.Stderr, dim("  o: open in the browser · w [file]: append its BibTeX to a file"))
+	fmt.Fprintln(os.Stderr, "  drill down: au <k> [year|y] · ve [year|y]   (y = this paper's year)")
+	fmt.Fprintln(os.Stderr, "  o: open in the browser · w [file]: append its BibTeX to a file")
 }
 
 // facetAuthor builds a query for papers by the k-th author of the selection,

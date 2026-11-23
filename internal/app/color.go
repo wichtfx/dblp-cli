@@ -33,7 +33,6 @@ func sgr(code, s string) string {
 }
 
 func bold(s string) string    { return sgr("1", s) }
-func dim(s string) string     { return sgr("2", s) }
 func red(s string) string     { return sgr("31", s) }
 func green(s string) string   { return sgr("32", s) }
 func yellow(s string) string  { return sgr("33", s) }
